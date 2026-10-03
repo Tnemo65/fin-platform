@@ -1,0 +1,175 @@
+# Cấu hình nghiệp vụ của Finance Platform.
+# Biến môi trường (DATABASE_URL, RAW_DIR, ...) nằm trong .env, xem .env.example.
+
+[general]
+timezone = "Asia/Ho_Chi_Minh"
+# Sàn lấy danh sách mã
+exchanges = ["HOSE", "HNX", "UPCOM"]
+# Xử lý ngay sau khi crawl (vẫn lưu raw trước). Job 18:30 xử lý lại mọi batch còn tồn.
+process_inline = true
+# Số ngày lấy lùi khi crawl giá EOD (chồng lấn để vá ngày thiếu, upsert nên không trùng)
+price_lookback_days = 7
+# Giãn cách tối thiểu giữa 2 request tới cùng một nguồn (giây), tính chung cho mọi luồng
+request_delay = 0.4
+# Số luồng tải song song trong một nguồn (theo mã với vnstock, theo bài với RSS).
+# Tốc độ thực tế vẫn bị request_delay giới hạn; tăng workers chỉ có ích khi giảm request_delay.
+crawl_workers = 4
+# Số nguồn fetch song song trong một job (vd 4 feed RSS + 2 trang công bố cùng lúc)
+source_workers = 4
+# Số bài tối đa tải nội dung mỗi feed mỗi lần chạy
+max_articles_per_feed = 40
+
+# Thử lại khi crawl gặp lỗi tạm thời (mất kết nối, timeout, HTTP 429/5xx). Áp dụng cho từng
+# request/từng mã, backoff mũ có jitter: lần 2 chờ ~wait_min..2*wait_min giây, lần 3 gấp đôi...
+# Server trả Retry-After thì chờ theo đó. Lỗi dữ liệu (404, parse) không thử lại.
+[retry]
+attempts = 3
+wait_min = 1.0
+wait_max = 20.0
+
+# NGUYÊN TẮC NHIỀU NGUỒN: mọi nguồn trong [sources] đều được crawl đầy đủ và song song trong mỗi job,
+# giá trị của từng nguồn được giữ nguyên trong bảng *_by_source. Không có chuyện bỏ nguồn này lấy nguồn khác.
+# [priority] chỉ quyết định nguồn nào được ghi vào bảng core khi hai nguồn lệch nhau (nguồn đứng trước thắng;
+# nguồn không có trong danh sách xếp cuối). Job 19:00 báo độ phủ từng nguồn và các mã có nguồn lệch nhau.
+[priority]
+symbols = ["vnstock_vci", "vnstock_kbs", "demo"]
+prices = ["vnstock_vci", "vnstock_kbs", "vndirect", "cafef_prices", "demo"]
+financials = ["vnstock_vci", "vnstock_kbs", "vndirect", "demo"]
+ratios = ["vnstock_vci", "vnstock_kbs", "demo"]
+events = ["vnstock_vci", "vnstock_kbs", "demo"]
+news = ["hose", "hnx", "vietstock", "cafef", "vneconomy", "vnexpress", "demo"]
+
+# Nguồn đang bật cho từng job: TẤT CẢ đều chạy. vnstock 3.5.0 (03/2026) đã gỡ TCBS; vnstock còn VCI, KBS.
+# vndirect, cafef_prices gọi API trực tiếp (không qua vnstock, không vướng hạn mức key của vnstock).
+[sources]
+symbols = ["vnstock_vci", "vnstock_kbs"]
+events = ["vnstock_vci"]
+prices = ["vnstock_vci", "vnstock_kbs", "vndirect", "cafef_prices"]
+financials = ["vnstock_vci", "vnstock_kbs", "vndirect"]
+ratios = ["vnstock_vci", "vnstock_kbs"]
+news = ["cafef", "vietstock", "vnexpress", "vneconomy"]
+disclosures = ["hose", "hnx"]
+
+# Giãn cách request riêng từng nguồn (giây), ghi đè [general].request_delay. vnstock không có key: 20 req/phút.
+[rate_limits]
+vnstock_vci = 3.0
+vnstock_kbs = 3.0
+vndirect = 0.5
+cafef_prices = 0.5
+
+# Ngưỡng kiểm tra chất lượng theo nguồn (job 19:00 và trang tình trạng dữ liệu)
+[checks]
+min_source_coverage = 0.9      # nguồn crawl được < 90% số mã yêu cầu -> báo
+max_close_diff_pct = 1.0       # giá đóng cửa giữa 2 nguồn lệch > 1% -> báo
+max_financial_diff_pct = 2.0   # chỉ tiêu BCTC chính giữa 2 nguồn lệch > 2% -> báo
+
+# Đơn vị gốc mà từng nguồn trả về, để quy về VND.
+# price = "auto": tự nhận diện nghìn đồng/đồng theo độ lớn (raw > 1000 là đồng), vì vnstock đổi
+# cách trả giữa provider/phiên bản. Đặt cứng "kVND"/"VND" nếu muốn.
+# financial: VCI trả đồng. KBS chưa kiểm chứng (vnstock 5/2026 thêm unit_multiplier cho KBS); để "VND"
+# và kiểm tra raw sau lần chạy đầu với mạng thật, nếu lệch 1e9 lần thì đổi sang "bVND".
+[units.vnstock_vci]
+price = "auto"
+financial = "VND"
+eps = "VND"
+
+[units.vnstock_kbs]
+price = "auto"
+financial = "VND"
+eps = "VND"
+
+[units.vndirect]
+price = "auto"
+financial = "VND"      # chưa kiểm chứng; nếu báo cáo sai lệch cho thấy lệch 1e9 lần thì đổi "bVND"
+
+[units.cafef_prices]
+price = "auto"
+
+# Feed RSS. Thêm feed mới chỉ cần thêm dòng ở đây.
+[feeds.cafef]
+label = "CafeF"
+urls = [
+  "https://cafef.vn/thi-truong-chung-khoan.rss",
+  "https://cafef.vn/doanh-nghiep.rss",
+]
+
+[feeds.vietstock]
+label = "Vietstock"
+urls = [
+  "https://vietstock.vn/830/chung-khoan/co-phieu.rss",
+  "https://vietstock.vn/737/doanh-nghiep/hoat-dong-kinh-doanh.rss",
+]
+
+[feeds.vnexpress]
+label = "VnExpress Kinh doanh"
+urls = ["https://vnexpress.net/rss/kinh-doanh.rss"]
+
+[feeds.vneconomy]
+label = "VnEconomy"
+urls = [
+  "https://vneconomy.vn/chung-khoan.rss",
+  "https://vneconomy.vn/tai-chinh.rss",
+]
+
+# Trang công bố thông tin. Selector là XPath tới từng dòng tin trong trang danh sách.
+# CHƯA KIỂM CHỨNG được từ môi trường build (mạng bị chặn): cần chạy thử và chỉnh selector.
+[disclosures.hose]
+label = "HOSE - Công bố thông tin"
+url = "https://www.hsx.vn/Modules/Cms/Web/NewsByCat/dca0933e-a578-4eaf-8b29-beb4575052c5?fid=0318d64750264e31b5d57c619ed6b338"
+item_xpath = "//a[contains(@href, '/Modules/Cms/Web/ViewArticle') or contains(@href, '/vi/tin-dang-chu-y')]"
+base_url = "https://www.hsx.vn"
+
+[disclosures.hnx]
+label = "HNX - Công bố thông tin"
+url = "https://www.hnx.vn/vi-vn/thong-tin-cong-bo-ny-hnx.html"
+item_xpath = "//table//tr[td]//a[@href]"
+base_url = "https://www.hnx.vn"
+
+# Mùa BCTC: job 18:00 chạy toàn bộ mã. Ngoài mùa chỉ chạy 1/7 số mã mỗi ngày (xoay vòng)
+# cộng với watchlist, nên mọi mã vẫn được làm mới hằng tuần.
+[financial_season]
+# [tháng, ngày bắt đầu, tháng, ngày kết thúc]
+windows = [[1, 15, 2, 20], [3, 15, 4, 30], [7, 15, 8, 20], [10, 15, 11, 20]]
+watchlist = ["VNM", "FPT", "HPG", "VCB", "MWG", "VIC", "TCB", "SSI"]
+rotation_days = 7
+
+# Ngày nghỉ lễ (sàn đóng cửa). Cập nhật hằng năm theo thông báo của UBCKNN/HOSE.
+[calendar]
+holidays = [
+  "2026-01-01",
+  "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20",
+  "2026-04-27", "2026-04-30", "2026-05-01",
+  "2026-08-31", "2026-09-01", "2026-09-02",
+]
+
+[tagging]
+# Ngưỡng điểm để gắn mã cho tin
+min_score = 0.6
+# Mã trùng với từ viết tắt phổ biến: chỉ gắn khi có ngữ cảnh rõ ("mã VND", "(HOSE: CEO)")
+# hoặc khi khớp tên công ty.
+ambiguous_tickers = [
+  "VND", "CEO", "API", "CPI", "GDP", "FDI", "USD", "ETF", "IPO", "EUR", "VAT",
+  "SJC", "TOP", "PET", "ART", "NET", "HOT", "BIG", "SEA", "FIT", "TIG", "OIL",
+  "HNX", "HSX", "VNI", "EPS", "ROE", "ROA", "NIM", "GDP",
+]
+# Tên gọi khác của doanh nghiệp, dùng để dò trong bài
+[tagging.aliases]
+VNM = ["Vinamilk"]
+FPT = ["FPT Corporation", "Tập đoàn FPT"]
+HPG = ["Hòa Phát", "Hoà Phát"]
+VCB = ["Vietcombank"]
+MWG = ["Thế Giới Di Động", "Thế giới Di động"]
+VIC = ["Vingroup"]
+VHM = ["Vinhomes"]
+TCB = ["Techcombank"]
+SSI = ["Chứng khoán SSI"]
+MSN = ["Masan Group", "Tập đoàn Masan"]
+GAS = ["PV Gas"]
+CTG = ["VietinBank", "Vietinbank"]
+BID = ["BIDV"]
+MBB = ["MB Bank", "MBBank"]
+ACB = ["Ngân hàng Á Châu"]
+VPB = ["VPBank"]
+VJC = ["Vietjet"]
+HVN = ["Vietnam Airlines"]
+PNJ = ["Vàng bạc Đá quý Phú Nhuận"]

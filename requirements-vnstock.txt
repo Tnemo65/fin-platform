@@ -1,0 +1,10 @@
+# Nguồn số liệu tài chính. vnstock KHÔNG còn trên PyPI: tác giả phát hành qua index riêng, cài bằng
+#   pip install --extra-index-url https://vnstocks.com/api/simple -r requirements-vnstock.txt
+# (vnai là phụ thuộc bắt buộc, cũng chỉ có trên index đó). Máy chạy cần tới được vnstocks.com.
+# Lưu ý: license vnstock không phải OSI (miễn phí cho cá nhân, cấm phân phối lại/bán lại dữ liệu);
+# hạn mức mặc định 20 request/phút, đăng ký key tại vnstocks.com để nâng. Các nguồn gốc chặn IP ngoài VN.
+# Hệ thống chạy bình thường khi chưa có vnstock: job prices_eod/financials/symbols_events ghi
+# trạng thái failed vào job_runs, các phần khác (tin tức, API, giao diện) không ảnh hưởng.
+--extra-index-url https://vnstocks.com/api/simple
+vnstock>=4.0
+vnai
