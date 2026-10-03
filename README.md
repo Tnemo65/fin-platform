@@ -9,7 +9,7 @@ chuẩn hoá về một khoá chung (mã + ngày/kỳ), phục vụ qua FastAPI 
 
 ```bash
 pip install -r requirements.txt
-pip install -r requirements-vnstock.txt   # số liệu tài chính; xem ghi chú vnstock bên dưới
+pip install -r requirements-vnstock.txt   # vnstock qua index riêng vnstocks.com; xem ghi chú bên dưới
 python -m finplat init-db
 
 # Có mạng tới nguồn thật:
@@ -29,17 +29,18 @@ python -m finplat scheduler                # chạy lịch hằng ngày
 Mặc định dùng SQLite (`data/finplat.db`). Dùng PostgreSQL: `docker compose up -d` rồi đặt
 `DATABASE_URL=postgresql+psycopg://finplat:finplat@localhost:5432/finplat` trong `.env` (xem `.env.example`).
 
-**vnstock**: để riêng trong `requirements-vnstock.txt` vì tại thời điểm viết (03/10/2026) PyPI
-không có `vnstock` lẫn các gói nó phụ thuộc (`vnai`, `vnstock_ezchart`), nên nếu gộp chung thì
-`pip install -r requirements.txt` hỏng cả. Khi cài được thì chạy lệnh trên; nếu không, cài từ
-nguồn theo hướng dẫn của tác giả (repo `thinh-vu/vnstock`). Chưa có vnstock thì các job
-`symbols_events`, `prices_eod`, `financials` ghi `failed` vào `job_runs`; tin tức, API, giao diện
-vẫn chạy.
+**vnstock**: không còn phát hành trên PyPI; tác giả cung cấp qua index riêng, nên
+`requirements-vnstock.txt` khai `--extra-index-url https://vnstocks.com/api/simple` (kèm `vnai`).
+Để riêng khỏi `requirements.txt` để phần còn lại luôn cài được. vnstock 3.5.0 (03/2026) đã **gỡ TCBS**,
+nguồn hiện dùng là VCI (chính) và KBS (dự phòng). Hạn mức 20 request/phút khi không có key; license của
+vnstock không phải OSI (miễn phí cho cá nhân, cấm phân phối lại dữ liệu). Chưa có vnstock thì các job
+`symbols_events`, `prices_eod`, `financials` ghi `failed` vào `job_runs`; tin tức, API, giao diện vẫn chạy.
 
 **Mạng ra ngoài** (máy chạy crawler cần tới được): `cafef.vn`, `vietstock.vn`, `vnexpress.net`,
-`vneconomy.vn`, `www.hsx.vn`, `www.hnx.vn`, và các API vnstock dùng: `api.vietcap.com.vn` (VCI),
-`apipubaws.tcbs.com.vn` (TCBS). Lệnh `python -m finplat run <job>` trả exit code 1 khi job
-`failed`, nên cron/CI bắt được.
+`vneconomy.vn`, `www.hsx.vn`, `www.hnx.vn`; cài vnstock: `vnstocks.com`; API vnstock gọi (theo
+`explorer/*/const.py` của vnstock): VCI `mt.vietcap.com.vn`, `trading.vietcap.com.vn`, `iq.vietcap.com.vn`;
+KBS `kbbuddywts.kbsec.com.vn`. Các nguồn này chặn IP ngoài Việt Nam, nên crawler nên chạy trong nước.
+Lệnh `python -m finplat run <job>` trả exit code 1 khi job `failed`, nên cron/CI bắt được.
 
 ## Cấu trúc
 
@@ -47,7 +48,7 @@ vẫn chạy.
 config/settings.toml      Cấu hình nghiệp vụ: ưu tiên nguồn, feed RSS, đơn vị, ngày nghỉ, mùa BCTC, gắn mã
 finplat/
   sources/                Mỗi nguồn một module, cùng interface (base.py)
-    vnstock_source.py     vnstock_vci, vnstock_tcbs: mã, giá, BCTC, chỉ số, sự kiện
+    vnstock_source.py     vnstock_vci, vnstock_kbs: mã, giá, BCTC, chỉ số, sự kiện
     rss.py                cafef, vietstock, vnexpress, vneconomy (sinh từ [feeds.*])
     disclosures.py        hose, hnx (sinh từ [disclosures.*])
     demo.py               dữ liệu giả lập để thử UI

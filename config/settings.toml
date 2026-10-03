@@ -30,17 +30,18 @@ wait_max = 20.0
 # Thứ tự ưu tiên nguồn theo loại dữ liệu: nguồn đứng trước thắng khi hai nguồn lệch nhau.
 # Nguồn không có trong danh sách có độ ưu tiên thấp nhất.
 [priority]
-symbols = ["vnstock_vci", "vnstock_tcbs", "demo"]
-prices = ["vnstock_vci", "vnstock_tcbs", "demo"]
-financials = ["vnstock_vci", "vnstock_tcbs", "demo"]
-ratios = ["vnstock_vci", "vnstock_tcbs", "demo"]
-events = ["vnstock_tcbs", "vnstock_vci", "demo"]
+symbols = ["vnstock_vci", "vnstock_kbs", "demo"]
+prices = ["vnstock_vci", "vnstock_kbs", "demo"]
+financials = ["vnstock_vci", "vnstock_kbs", "demo"]
+ratios = ["vnstock_vci", "vnstock_kbs", "demo"]
+events = ["vnstock_vci", "vnstock_kbs", "demo"]
 news = ["hose", "hnx", "vietstock", "cafef", "vneconomy", "vnexpress", "demo"]
 
-# Nguồn đang bật cho từng job
+# Nguồn đang bật cho từng job. vnstock 3.5.0 (03/2026) đã gỡ TCBS; nguồn còn lại: VCI, KBS (mặc định
+# của vnstock 4.x), MSN, FMarket. Sự kiện doanh nghiệp lấy từ VCI (IQ-Insight corporate actions).
 [sources]
 symbols = ["vnstock_vci"]
-events = ["vnstock_tcbs"]
+events = ["vnstock_vci"]
 prices = ["vnstock_vci"]
 financials = ["vnstock_vci"]
 ratios = ["vnstock_vci"]
@@ -50,15 +51,16 @@ disclosures = ["hose", "hnx"]
 # Đơn vị gốc mà từng nguồn trả về, để quy về VND.
 # price = "auto": tự nhận diện nghìn đồng/đồng theo độ lớn (raw > 1000 là đồng), vì vnstock đổi
 # cách trả giữa provider/phiên bản. Đặt cứng "kVND"/"VND" nếu muốn.
-# financial: VCI trả đồng, TCBS trả tỷ đồng. Kiểm tra lại raw sau lần chạy đầu với mạng thật.
+# financial: VCI trả đồng. KBS chưa kiểm chứng (vnstock 5/2026 thêm unit_multiplier cho KBS); để "VND"
+# và kiểm tra raw sau lần chạy đầu với mạng thật, nếu lệch 1e9 lần thì đổi sang "bVND".
 [units.vnstock_vci]
 price = "auto"
 financial = "VND"
 eps = "VND"
 
-[units.vnstock_tcbs]
+[units.vnstock_kbs]
 price = "auto"
-financial = "bVND"
+financial = "VND"
 eps = "VND"
 
 # Feed RSS. Thêm feed mới chỉ cần thêm dòng ở đây.

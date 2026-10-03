@@ -1,7 +1,9 @@
-"""Nguồn số liệu tài chính qua thư viện vnstock (3.x).
+"""Nguồn số liệu tài chính qua thư viện vnstock (3.x/4.x).
 
-Mỗi provider của vnstock (VCI, TCBS) là một nguồn riêng: vnstock_vci, vnstock_tcbs.
+Mỗi provider của vnstock là một nguồn riêng: vnstock_vci (Vietcap), vnstock_kbs (KB Securities, mặc định
+của vnstock 4.x). TCBS đã bị vnstock gỡ từ 3.5.0 (03/2026) nên không còn đăng ký.
 vnstock được import khi chạy, nên phần còn lại của hệ thống vẫn chạy được khi chưa cài.
+Cài: pip install --extra-index-url https://vnstocks.com/api/simple vnstock vnai  (gói không còn trên PyPI).
 
 Raw lưu đúng bảng vnstock trả về (mỗi dòng DataFrame một dict, cột MultiIndex nối bằng "|").
 Tên cột thay đổi giữa các phiên bản/provider, nên parse dò theo danh sách tên có thể có.
@@ -22,7 +24,7 @@ log = logging.getLogger(__name__)
 
 STATEMENTS = {"IS": "income_statement", "BS": "balance_sheet", "CF": "cash_flow"}
 
-# Tên cột có thể gặp (đã lower-case) — VCI lang=vi / lang=en, TCBS
+# Tên cột có thể gặp (đã lower-case) — VCI lang=vi / lang=en, KBS
 TICKER_COLS = ["ticker", "cp", "symbol", "meta|cp", "meta|ticker"]
 YEAR_COLS = ["year", "yearreport", "năm", "nam", "meta|năm", "meta|yearreport"]
 QUARTER_COLS = ["quarter", "lengthreport", "kỳ", "ky", "meta|kỳ", "meta|lengthreport"]
@@ -101,7 +103,10 @@ class VnstockSource(Source):
         tickers: list[str] = params.get("tickers") or []
         if dataset == "symbols":
             vn = self._vnstock()
-            listing = vn.Listing(source=self.provider) if self.provider == "VCI" else vn.Listing()
+            try:
+                listing = vn.Listing(source=self.provider)
+            except (TypeError, ValueError):  # provider không hỗ trợ listing -> mặc định của vnstock
+                listing = vn.Listing()
             rows = _df_records(with_retry(listing.symbols_by_exchange))
             try:  # bổ sung ngành nếu provider hỗ trợ
                 ind = {r.get("symbol"): r for r in _df_records(with_retry(listing.symbols_by_industries))}
@@ -305,4 +310,4 @@ def _date_str(v) -> str | None:
 
 
 register(VnstockSource("VCI"))
-register(VnstockSource("TCBS"))
+register(VnstockSource("KBS"))

@@ -81,3 +81,16 @@ def test_cli_run_exits_nonzero_when_job_failed(monkeypatch):
     monkeypatch.setattr(VnstockSource, "fetch", broken)
     assert main(["run", "prices_eod", "--force", "--tickers", "VNM"]) == 1
     assert main(["run", "checks"]) == 0
+
+
+def test_registered_vnstock_sources_match_config():
+    from finplat.config import get_settings
+    from finplat.sources import all_sources
+
+    names = set(all_sources())
+    assert {"vnstock_vci", "vnstock_kbs"} <= names and "vnstock_tcbs" not in names  # TCBS bị vnstock gỡ
+    cfg = get_settings().raw
+    for job, srcs in cfg["sources"].items():
+        assert set(srcs) <= names, f"[sources].{job} có nguồn chưa đăng ký"
+    for ds, order in cfg["priority"].items():
+        assert set(order) <= names, f"[priority].{ds} có nguồn chưa đăng ký"

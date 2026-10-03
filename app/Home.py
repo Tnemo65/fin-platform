@@ -12,6 +12,9 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 
+# Quy ước màu của thị trường Việt Nam: đỏ = tăng, xanh = giảm (ngược với Mỹ)
+UP, DOWN = "#dc2626", "#16a34a"
+
 st.set_page_config(page_title="Finance Platform", page_icon="📈", layout="wide")
 
 
@@ -121,12 +124,12 @@ else:
     last, prev = prices.iloc[-1], prices.iloc[-2] if len(prices) > 1 else prices.iloc[-1]
     chg = (last["close"] - prev["close"]) / prev["close"] * 100 if prev["close"] else 0
     c1, c2, c3 = st.columns(3)
-    c1.metric("Giá đóng cửa", f"{last['close']:,.0f} đ", f"{chg:+.2f}%")
+    c1.metric("Giá đóng cửa", f"{last['close']:,.0f} đ", f"{chg:+.2f}%", delta_color="inverse")  # đỏ tăng
     c2.metric("Khối lượng", f"{last['volume']:,.0f}" if pd.notna(last["volume"]) else "–")
     c3.metric("Ngày", last["date"].strftime("%d/%m/%Y"))
 
     base = alt.Chart(prices).encode(x=alt.X("date:T", title=None))
-    color = alt.condition("datum.open <= datum.close", alt.value("#16a34a"), alt.value("#dc2626"))
+    color = alt.condition("datum.open <= datum.close", alt.value(UP), alt.value(DOWN))
     tooltip = [alt.Tooltip("date:T", title="Ngày"), alt.Tooltip("open:Q", format=",.0f", title="Mở"),
                alt.Tooltip("high:Q", format=",.0f", title="Cao"), alt.Tooltip("low:Q", format=",.0f", title="Thấp"),
                alt.Tooltip("close:Q", format=",.0f", title="Đóng"), alt.Tooltip("volume:Q", format=",.0f", title="KL")]
@@ -163,11 +166,11 @@ else:
                              index=order["item_name"].tolist())
 
         def color(v: str):
-            return "color:#16a34a" if "▲" in v else ("color:#dc2626" if "▼" in v else "")
+            return f"color:{UP}" if "▲" in v else (f"color:{DOWN}" if "▼" in v else "")
 
         with tab:
             st.dataframe(table.style.map(color), use_container_width=True)
-            st.caption("Đơn vị VND. ▲/▼: tăng/giảm so với cùng kỳ năm trước.")
+            st.caption("Đơn vị VND. ▲ đỏ: tăng, ▼ xanh: giảm so với cùng kỳ năm trước (quy ước màu Việt Nam).")
     if fin.get("ratios"):
         r = pd.DataFrame(fin["ratios"]).set_index("period")
         r["roe"] = r["roe"].map(lambda x: f"{x * 100:.1f}%" if pd.notna(x) else "–")
