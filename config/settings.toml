@@ -1,0 +1,136 @@
+# Cấu hình nghiệp vụ của Finance Platform.
+# Biến môi trường (DATABASE_URL, RAW_DIR, ...) nằm trong .env, xem .env.example.
+
+[general]
+timezone = "Asia/Ho_Chi_Minh"
+# Sàn lấy danh sách mã
+exchanges = ["HOSE", "HNX", "UPCOM"]
+# Xử lý ngay sau khi crawl (vẫn lưu raw trước). Job 18:30 xử lý lại mọi batch còn tồn.
+process_inline = true
+# Số ngày lấy lùi khi crawl giá EOD (chồng lấn để vá ngày thiếu, upsert nên không trùng)
+price_lookback_days = 7
+# Nghỉ giữa 2 request tới cùng một nguồn (giây)
+request_delay = 0.4
+# Số bài tối đa tải nội dung mỗi feed mỗi lần chạy
+max_articles_per_feed = 40
+
+# Thứ tự ưu tiên nguồn theo loại dữ liệu: nguồn đứng trước thắng khi hai nguồn lệch nhau.
+# Nguồn không có trong danh sách có độ ưu tiên thấp nhất.
+[priority]
+symbols = ["vnstock_vci", "vnstock_tcbs", "demo"]
+prices = ["vnstock_vci", "vnstock_tcbs", "demo"]
+financials = ["vnstock_vci", "vnstock_tcbs", "demo"]
+ratios = ["vnstock_vci", "vnstock_tcbs", "demo"]
+events = ["vnstock_tcbs", "vnstock_vci", "demo"]
+news = ["hose", "hnx", "vietstock", "cafef", "vneconomy", "vnexpress", "demo"]
+
+# Nguồn đang bật cho từng job
+[sources]
+symbols = ["vnstock_vci"]
+events = ["vnstock_tcbs"]
+prices = ["vnstock_vci"]
+financials = ["vnstock_vci"]
+ratios = ["vnstock_vci"]
+news = ["cafef", "vietstock", "vnexpress", "vneconomy"]
+disclosures = ["hose", "hnx"]
+
+# Đơn vị gốc mà từng nguồn trả về, để quy về VND.
+# Giá ở VCI/TCBS tính theo nghìn đồng. Kiểm tra lại khi đổi phiên bản vnstock.
+[units.vnstock_vci]
+price = "kVND"
+financial = "VND"
+eps = "VND"
+
+[units.vnstock_tcbs]
+price = "kVND"
+financial = "bVND"
+eps = "VND"
+
+# Feed RSS. Thêm feed mới chỉ cần thêm dòng ở đây.
+[feeds.cafef]
+label = "CafeF"
+urls = [
+  "https://cafef.vn/thi-truong-chung-khoan.rss",
+  "https://cafef.vn/doanh-nghiep.rss",
+]
+
+[feeds.vietstock]
+label = "Vietstock"
+urls = [
+  "https://vietstock.vn/830/chung-khoan/co-phieu.rss",
+  "https://vietstock.vn/737/doanh-nghiep/hoat-dong-kinh-doanh.rss",
+]
+
+[feeds.vnexpress]
+label = "VnExpress Kinh doanh"
+urls = ["https://vnexpress.net/rss/kinh-doanh.rss"]
+
+[feeds.vneconomy]
+label = "VnEconomy"
+urls = [
+  "https://vneconomy.vn/chung-khoan.rss",
+  "https://vneconomy.vn/tai-chinh.rss",
+]
+
+# Trang công bố thông tin. Selector là XPath tới từng dòng tin trong trang danh sách.
+# CHƯA KIỂM CHỨNG được từ môi trường build (mạng bị chặn): cần chạy thử và chỉnh selector.
+[disclosures.hose]
+label = "HOSE - Công bố thông tin"
+url = "https://www.hsx.vn/Modules/Cms/Web/NewsByCat/dca0933e-a578-4eaf-8b29-beb4575052c5?fid=0318d64750264e31b5d57c619ed6b338"
+item_xpath = "//a[contains(@href, '/Modules/Cms/Web/ViewArticle') or contains(@href, '/vi/tin-dang-chu-y')]"
+base_url = "https://www.hsx.vn"
+
+[disclosures.hnx]
+label = "HNX - Công bố thông tin"
+url = "https://www.hnx.vn/vi-vn/thong-tin-cong-bo-ny-hnx.html"
+item_xpath = "//table//tr[td]//a[@href]"
+base_url = "https://www.hnx.vn"
+
+# Mùa BCTC: job 18:00 chạy toàn bộ mã. Ngoài mùa chỉ chạy 1/7 số mã mỗi ngày (xoay vòng)
+# cộng với watchlist, nên mọi mã vẫn được làm mới hằng tuần.
+[financial_season]
+# [tháng, ngày bắt đầu, tháng, ngày kết thúc]
+windows = [[1, 15, 2, 20], [3, 15, 4, 30], [7, 15, 8, 20], [10, 15, 11, 20]]
+watchlist = ["VNM", "FPT", "HPG", "VCB", "MWG", "VIC", "TCB", "SSI"]
+rotation_days = 7
+
+# Ngày nghỉ lễ (sàn đóng cửa). Cập nhật hằng năm theo thông báo của UBCKNN/HOSE.
+[calendar]
+holidays = [
+  "2026-01-01",
+  "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20",
+  "2026-04-27", "2026-04-30", "2026-05-01",
+  "2026-08-31", "2026-09-01", "2026-09-02",
+]
+
+[tagging]
+# Ngưỡng điểm để gắn mã cho tin
+min_score = 0.6
+# Mã trùng với từ viết tắt phổ biến: chỉ gắn khi có ngữ cảnh rõ ("mã VND", "(HOSE: CEO)")
+# hoặc khi khớp tên công ty.
+ambiguous_tickers = [
+  "VND", "CEO", "API", "CPI", "GDP", "FDI", "USD", "ETF", "IPO", "EUR", "VAT",
+  "SJC", "TOP", "PET", "ART", "NET", "HOT", "BIG", "SEA", "FIT", "TIG", "OIL",
+  "HNX", "HSX", "VNI", "EPS", "ROE", "ROA", "NIM", "GDP",
+]
+# Tên gọi khác của doanh nghiệp, dùng để dò trong bài
+[tagging.aliases]
+VNM = ["Vinamilk"]
+FPT = ["FPT Corporation", "Tập đoàn FPT"]
+HPG = ["Hòa Phát", "Hoà Phát"]
+VCB = ["Vietcombank"]
+MWG = ["Thế Giới Di Động", "Thế giới Di động"]
+VIC = ["Vingroup"]
+VHM = ["Vinhomes"]
+TCB = ["Techcombank"]
+SSI = ["Chứng khoán SSI"]
+MSN = ["Masan Group", "Tập đoàn Masan"]
+GAS = ["PV Gas"]
+CTG = ["VietinBank", "Vietinbank"]
+BID = ["BIDV"]
+MBB = ["MB Bank", "MBBank"]
+ACB = ["Ngân hàng Á Châu"]
+VPB = ["VPBank"]
+VJC = ["Vietjet"]
+HVN = ["Vietnam Airlines"]
+PNJ = ["Vàng bạc Đá quý Phú Nhuận"]
