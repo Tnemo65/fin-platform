@@ -1,11 +1,19 @@
-"""FastAPI. Chạy: python -m finplat api  (hoặc uvicorn finplat.api.main:app)"""
 from __future__ import annotations
 
+"""FastAPI. Chạy: python -m finplat api [--workers N]  (hoặc uvicorn finplat.api.main:app --workers N)
+
+Hiệu năng: endpoint là hàm sync nên FastAPI chạy chúng trên thread pool (API_THREADS luồng/worker,
+mặc định 64), nhiều request được phục vụ cùng lúc; `--workers` nhân thêm theo số tiến trình.
+Phản hồi lớn (giá nhiều năm) được nén gzip.
+"""
+import os
 from contextlib import asynccontextmanager
 from datetime import date
 
+import anyio
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -15,15 +23,17 @@ from ..models import CorporateEvent, FinancialItem, News, NewsTicker, PriceDaily
 from ..processing.normalize import KEY_ITEMS, prev_year_period
 
 
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    # Số luồng chạy endpoint sync đồng thời trong một worker (mặc định của anyio là 40)
+    anyio.to_thread.current_default_thread_limiter().total_tokens = int(os.environ.get("API_THREADS", "64"))
     yield
 
 
 app = FastAPI(title="Finance Platform API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 STATEMENT_NAMES = {"IS": "Kết quả kinh doanh", "BS": "Cân đối kế toán", "CF": "Lưu chuyển tiền tệ"}
 
@@ -133,13 +143,19 @@ def get_news(ticker: str, limit: int = Query(50, le=200), offset: int = 0, db: S
     stmt = (select(News, NewsTicker.match_type, NewsTicker.score).join(NewsTicker, NewsTicker.news_id == News.id)
             .where(NewsTicker.ticker == t)
             .order_by(func.coalesce(News.published_at, News.created_at).desc()).offset(offset).limit(limit))
+    rows = db.execute(stmt).all()
+    # Mã khác cùng được nhắc trong các tin này: một truy vấn cho cả trang thay vì mỗi tin một truy vấn
+    others: dict[str, list[str]] = {}
+    if rows:
+        for nid, other in db.execute(select(NewsTicker.news_id, NewsTicker.ticker).where(
+                NewsTicker.news_id.in_([n.id for n, _, _ in rows]), NewsTicker.ticker != t).order_by(NewsTicker.ticker)):
+            others.setdefault(nid, []).append(other)
     out = []
-    for n, mt, score in db.execute(stmt):
-        others = list(db.scalars(select(NewsTicker.ticker).where(NewsTicker.news_id == n.id, NewsTicker.ticker != t)))
+    for n, mt, score in rows:
         out.append({"id": n.id, "title": n.title, "url": n.url, "source": n.source, "kind": n.kind,
                     "published_at": n.published_at.isoformat() + "Z" if n.published_at else None,
                     "summary": n.summary or (n.content[:300] if n.content else None),
-                    "match_type": mt, "score": score, "other_tickers": others})
+                    "match_type": mt, "score": score, "other_tickers": others.get(n.id, [])})
     return {"ticker": t, "news": out}
 
 

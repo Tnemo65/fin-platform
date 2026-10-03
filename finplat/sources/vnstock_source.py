@@ -9,13 +9,12 @@ Tên cột thay đổi giữa các phiên bản/provider, nên parse dò theo da
 from __future__ import annotations
 
 import logging
-import time
 from datetime import date, timedelta
 from typing import Any
 
 from ..config import get_settings
 from ..schemas import EventRec, FinancialRec, PriceRec, RatioRec, SymbolRec
-from ..utils import first_present, to_float
+from ..utils import RateLimiter, first_present, thread_map, to_float
 from .base import Source, register
 
 log = logging.getLogger(__name__)
@@ -61,6 +60,7 @@ class VnstockSource(Source):
         self.provider = provider.upper()
         self.name = f"vnstock_{provider.lower()}"
         self._lang = "vi"
+        self._limiter = RateLimiter()  # dùng chung cho mọi luồng của nguồn này
 
     # ------------------------------------------------------------------ fetch
     def _vnstock(self):
@@ -71,21 +71,28 @@ class VnstockSource(Source):
         return vnstock
 
     def _stock(self, ticker: str):
+        self._limiter.wait()
         return self._vnstock().Vnstock().stock(symbol=ticker, source=self.provider)
 
     def _per_ticker(self, tickers: list[str], fn) -> list[dict]:
-        delay = float(get_settings().general("request_delay", 0.4))
-        out: list[dict] = []
-        for t in tickers:
+        """Chạy fn(ticker) song song trên nhiều luồng; request tới nguồn vẫn giãn cách request_delay."""
+        s = get_settings()
+        self._limiter.min_interval = float(s.general("request_delay", 0.4))
+
+        def one(t: str) -> list[dict]:
             try:
+                recs = []
                 for rec in fn(t):
                     rec.setdefault("ticker", t)
-                    out.append(rec)
+                    recs.append(rec)
+                return recs
             except Exception as e:  # lỗi một mã không làm hỏng cả batch
                 log.warning("%s: lỗi %s: %s", self.name, t, e)
-                out.append({"ticker": t, "_error": f"{type(e).__name__}: {e}"})
-            if delay:
-                time.sleep(delay)
+                return [{"ticker": t, "_error": f"{type(e).__name__}: {e}"}]
+
+        out: list[dict] = []
+        for recs in thread_map(one, tickers, int(s.general("crawl_workers", 4))):
+            out.extend(recs)
         return out
 
     def fetch(self, dataset: str, **params: Any) -> list[dict]:

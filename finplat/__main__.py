@@ -6,7 +6,7 @@
   reprocess [--since D] [--source S] [--dataset D]   Chạy lại xử lý từ raw, không crawl lại
   tag [--all]                 Gắn mã cho tin (--all: gắn lại toàn bộ)
   scheduler                   Chạy lịch hằng ngày
-  api [--port 8000]           Chạy FastAPI
+  api [--port 8000] [--workers N]  Chạy FastAPI (N tiến trình)
   seed-demo                   Nạp dữ liệu GIẢ LẬP để thử UI
   status                      In tình trạng dữ liệu
   sources                     Liệt kê nguồn đã đăng ký
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("api")
     a.add_argument("--host", default="0.0.0.0")
     a.add_argument("--port", type=int, default=8000)
+    a.add_argument("--workers", type=int, default=None,
+                   help="Số tiến trình uvicorn (mặc định API_WORKERS hoặc min(4, số CPU))")
     sub.add_parser("seed-demo")
     sub.add_parser("status")
     sub.add_parser("sources")
@@ -99,7 +102,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "api":
         import uvicorn
 
-        uvicorn.run("finplat.api.main:app", host=args.host, port=args.port)
+        workers = args.workers or int(os.environ.get("API_WORKERS") or min(4, os.cpu_count() or 1))
+        uvicorn.run("finplat.api.main:app", host=args.host, port=args.port, workers=workers)
     elif args.cmd == "seed-demo":
         from .jobs import seed_demo
 

@@ -21,7 +21,7 @@ python -m finplat run news
 # Hoặc chỉ muốn xem giao diện: nạp dữ liệu GIẢ LẬP (source = demo, tin có nhãn [DEMO])
 python -m finplat seed-demo
 
-python -m finplat api                      # http://localhost:8000/docs
+python -m finplat api                      # http://localhost:8000/docs  (--workers N để chạy N tiến trình)
 streamlit run app/Home.py                  # http://localhost:8501
 python -m finplat scheduler                # chạy lịch hằng ngày
 ```
@@ -114,6 +114,19 @@ xử lý ngay (`process_inline = true`) để tin hiện lên trong ngày; job 1
 còn tồn. Đặt `false` để chỉ xử lý lúc 18:30.
 
 Chạy bằng cron thay vì APScheduler: gọi `python -m finplat run <job>` đúng giờ.
+
+## Hiệu năng (đa luồng)
+
+- **Crawl:** trong một job, các nguồn được fetch song song (`source_workers`, vd 4 feed RSS + 2
+  trang công bố cùng lúc). Trong mỗi nguồn lại song song theo mã (vnstock) hoặc theo bài (RSS)
+  với `crawl_workers` luồng. Mỗi nguồn có một bộ giãn cách dùng chung cho mọi luồng
+  (`request_delay`), nên tổng tốc độ gửi request tới một trang không vượt 1/`request_delay`
+  request/giây dù bật bao nhiêu luồng; muốn nhanh hơn thì giảm `request_delay`. Ghi raw và xử
+  lý vào DB vẫn tuần tự theo thứ tự nguồn để không tranh chấp ghi và kết quả ổn định.
+- **API:** `python -m finplat api --workers N` chạy N tiến trình uvicorn (mặc định
+  `API_WORKERS` hoặc min(4, số CPU)); trong mỗi tiến trình các endpoint chạy trên thread pool
+  `API_THREADS` luồng (mặc định 64). Phản hồi lớn nén gzip. Pool PostgreSQL `DB_POOL_SIZE`.
+- **Streamlit:** màn hình chính gọi 4 endpoint (mã, giá, BCTC, tin) cùng lúc thay vì lần lượt.
 
 ## API
 

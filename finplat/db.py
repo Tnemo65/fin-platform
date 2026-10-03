@@ -1,6 +1,7 @@
 """Kết nối DB và upsert theo ưu tiên nguồn (PostgreSQL hoặc SQLite)."""
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -30,7 +31,9 @@ def get_engine(url: str | None = None) -> Engine:
             cur.close()
 
         return engine
-    return create_engine(url, pool_pre_ping=True)
+    # PostgreSQL: pool đủ cho nhiều luồng crawl + nhiều request API cùng lúc (DB_POOL_SIZE trong .env)
+    pool = int(os.environ.get("DB_POOL_SIZE", "10"))
+    return create_engine(url, pool_pre_ping=True, pool_size=pool, max_overflow=pool * 2)
 
 
 def get_sessionmaker(url: str | None = None) -> sessionmaker[Session]:

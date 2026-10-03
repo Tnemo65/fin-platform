@@ -2,6 +2,10 @@
 
 Luồng chung của job crawl: fetch -> lưu raw (commit) -> xử lý batch vừa lưu (nếu process_inline).
 Xử lý lỗi thì batch ở trạng thái failed và job 18:30 sẽ chạy lại từ raw.
+
+Đa luồng: các nguồn trong một job được fetch song song (source_workers), bên trong mỗi nguồn
+lại song song theo mã/bài (crawl_workers, có giãn cách request_delay). Ghi raw và xử lý vào DB
+thì tuần tự theo thứ tự nguồn, để không tranh chấp ghi và kết quả ổn định.
 """
 from __future__ import annotations
 
@@ -23,7 +27,7 @@ from .processing.pipeline import process_pending, tag_news
 from .raw_store import RawStore
 from .sources import get_source
 from .trading_calendar import in_financial_season, is_trading_day, today_vn
-from .utils import utcnow
+from .utils import thread_map, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -73,15 +77,36 @@ def last_run_status(job_name: str) -> str | None:
         return s.scalar(select(JobRun.status).where(JobRun.job_name == job_name).order_by(JobRun.id.desc()).limit(1))
 
 
+CrawlTask = tuple[str, str, dict]  # (source, dataset, params)
+
+
 def crawl(ctx: RunCtx, source_name: str, dataset: str, **params) -> None:
     """Fetch một nguồn -> lưu raw -> (tuỳ chọn) xử lý ngay. Lỗi nguồn ghi vào ctx, không làm dừng job."""
-    source = get_source(source_name)
-    try:
-        records = source.fetch(dataset, **params)
-    except Exception as e:  # noqa: BLE001
-        log.exception("%s/%s fetch lỗi", source_name, dataset)
-        ctx.errors.append(f"{source_name}/{dataset}: {type(e).__name__}: {e}")
+    crawl_many(ctx, [(source_name, dataset, params)])
+
+
+def crawl_many(ctx: RunCtx, tasks: list[CrawlTask]) -> None:
+    """Fetch nhiều (nguồn, dataset) song song, rồi lưu raw + xử lý tuần tự theo thứ tự tasks."""
+    if not tasks:
         return
+
+    def fetch(task: CrawlTask):
+        source_name, dataset, params = task
+        try:
+            return get_source(source_name).fetch(dataset, **params)
+        except Exception as e:  # noqa: BLE001
+            log.exception("%s/%s fetch lỗi", source_name, dataset)
+            return e
+
+    workers = int(get_settings().general("source_workers", 4))
+    for (source_name, dataset, params), records in zip(tasks, thread_map(fetch, tasks, workers)):
+        if isinstance(records, Exception):
+            ctx.errors.append(f"{source_name}/{dataset}: {type(records).__name__}: {records}")
+            continue
+        _store_and_process(ctx, source_name, dataset, params, records)
+
+
+def _store_and_process(ctx: RunCtx, source_name: str, dataset: str, params: dict, records: list[dict]) -> None:
     saved_params = {k: v for k, v in params.items() if not callable(v)}
     if "tickers" in saved_params:
         saved_params["tickers"] = len(saved_params["tickers"])  # không lưu danh sách dài
@@ -129,8 +154,7 @@ def job_symbols_events(tickers: list[str] | None = None) -> None:
         for src in s.enabled_sources("symbols"):
             crawl(ctx, src, "symbols")
         universe = tickers or rotating_subset(active_tickers())
-        for src in s.enabled_sources("events"):
-            crawl(ctx, src, "events", tickers=universe)
+        crawl_many(ctx, [(src, "events", {"tickers": universe}) for src in s.enabled_sources("events")])
 
 
 def job_news() -> None:
@@ -140,10 +164,8 @@ def job_news() -> None:
         with session_scope() as sess:
             known = set(sess.scalars(select(News.id).where(News.created_at >= cutoff)))
         skip: Callable[[str], bool] = lambda url: url_hash(url) in known  # noqa: E731
-        for src in s.enabled_sources("news"):
-            crawl(ctx, src, "news", skip=skip)
-        for src in s.enabled_sources("disclosures"):
-            crawl(ctx, src, "disclosures")
+        crawl_many(ctx, [(src, "news", {"skip": skip}) for src in s.enabled_sources("news")]
+                   + [(src, "disclosures", {}) for src in s.enabled_sources("disclosures")])
         if s.general("process_inline", True):
             ctx.notes.append(f"gắn mã: {tag_news()} liên kết")
 
@@ -160,8 +182,8 @@ def job_prices_eod(tickers: list[str] | None = None, force: bool = False) -> Non
             ctx.errors.append("Chưa có danh sách mã, chạy job symbols_events trước")
             return
         start = today - timedelta(days=int(s.general("price_lookback_days", 7)))
-        for src in s.enabled_sources("prices"):
-            crawl(ctx, src, "prices", tickers=universe, start=start.isoformat(), end=today.isoformat())
+        crawl_many(ctx, [(src, "prices", {"tickers": universe, "start": start.isoformat(), "end": today.isoformat()})
+                         for src in s.enabled_sources("prices")])
 
 
 def job_financials(tickers: list[str] | None = None, full: bool | None = None) -> None:
@@ -171,10 +193,8 @@ def job_financials(tickers: list[str] | None = None, full: bool | None = None) -
         full = in_financial_season(today_vn()) if full is None else full
         universe = tickers or (all_t if full else rotating_subset(all_t))
         ctx.notes.append(f"{'mùa BCTC: toàn bộ' if full else 'ngoài mùa: xoay vòng'} {len(universe)} mã")
-        for src in s.enabled_sources("financials"):
-            crawl(ctx, src, "financials", tickers=universe)
-        for src in s.enabled_sources("ratios"):
-            crawl(ctx, src, "ratios", tickers=universe)
+        crawl_many(ctx, [(src, "financials", {"tickers": universe}) for src in s.enabled_sources("financials")]
+                   + [(src, "ratios", {"tickers": universe}) for src in s.enabled_sources("ratios")])
 
 
 def job_processing() -> None:
@@ -199,8 +219,9 @@ def seed_demo() -> None:
     """Chạy toàn bộ pipeline với nguồn demo (dữ liệu giả lập)."""
     init_db()
     with job_run("seed_demo") as ctx:
-        for ds in ("symbols", "prices", "financials", "ratios", "events", "news"):
-            crawl(ctx, "demo", ds, today=today_vn().isoformat())
+        today = today_vn().isoformat()
+        crawl_many(ctx, [("demo", ds, {"today": today})
+                         for ds in ("symbols", "prices", "financials", "ratios", "events", "news")])
         ctx.notes.append(f"gắn mã: {tag_news()} liên kết")
 
 

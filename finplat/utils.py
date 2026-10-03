@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Iterator, TypeVar
+from typing import Callable, Iterable, Iterator, Sequence, TypeVar
 
 T = TypeVar("T")
+R = TypeVar("R")
 
 
 def utcnow() -> datetime:
@@ -71,3 +74,38 @@ def first_present(d: dict, keys: Iterable[str]):
         if k.lower() in lower and lower[k.lower()] is not None:
             return lower[k.lower()]
     return None
+
+
+class RateLimiter:
+    """Giãn cách tối thiểu giữa 2 request tới cùng một nguồn, dùng chung cho mọi luồng.
+
+    Nhiều luồng crawl song song nhưng tổng tốc độ gửi request tới nguồn vẫn bị chặn ở
+    1 request / min_interval giây, nên không bị nguồn chặn vì gửi dồn dập.
+    """
+
+    def __init__(self, min_interval: float = 0.0):
+        self.min_interval = float(min_interval)
+        self._lock = threading.Lock()
+        self._next_at = 0.0
+
+    def wait(self) -> None:
+        if self.min_interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._next_at)
+            self._next_at = slot + self.min_interval
+        if slot > now:
+            time.sleep(slot - now)
+
+
+def thread_map(fn: Callable[[T], R], items: Sequence[T], workers: int) -> list[R]:
+    """map() trên nhiều luồng (I/O-bound), giữ nguyên thứ tự kết quả. workers<=1 thì chạy tuần tự."""
+    items = list(items)
+    if not items:
+        return []
+    workers = max(1, min(int(workers), len(items)))
+    if workers == 1:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="crawl") as pool:
+        return list(pool.map(fn, items))

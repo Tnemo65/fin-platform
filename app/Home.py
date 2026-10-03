@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import os
+import threading
 
 import altair as alt
 import pandas as pd
 import requests
 import streamlit as st
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 
@@ -20,6 +22,28 @@ def api(path: str, **params):
         return None
     r.raise_for_status()
     return r.json()
+
+
+def api_parallel(calls: dict[str, tuple[str, dict]]) -> dict:
+    """Gọi nhiều endpoint cùng lúc (mỗi call một luồng) thay vì chờ lần lượt: trang tải nhanh gấp số call."""
+    results: dict[str, object] = {}
+    errors: dict[str, Exception] = {}
+
+    def run(name, path, params):
+        try:
+            results[name] = api(path, **params)
+        except Exception as e:  # noqa: BLE001
+            errors[name] = e
+
+    threads = [add_script_run_ctx(threading.Thread(target=run, args=(n, p, kw), daemon=True))
+               for n, (p, kw) in calls.items()]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if errors:
+        raise next(iter(errors.values()))
+    return results
 
 
 def fmt_vnd(v: float | None) -> str:
@@ -55,15 +79,41 @@ if not ticker:
     st.info("Nhập mã cổ phiếu để xem giá, BCTC và tin tức.")
     st.stop()
 
-sym = api(f"/symbols/{ticker}")
-st.subheader(f"{ticker} · {sym.get('company_name') or ''}")
-st.caption(" · ".join(x for x in [sym.get("exchange"), sym.get("industry")] if x))
+# Vẽ khung + điều khiển của 3 khối trước, rồi gọi 4 API song song, sau đó điền dữ liệu vào từng khung.
+head = st.container()
+sec_price, sec_fin, sec_news = st.container(), st.container(), st.container()
+
+with sec_price:
+    st.markdown("### Biểu đồ giá")
+    rng = st.radio("Khoảng thời gian", ["3T", "6T", "1N", "3N", "Tất cả"], index=2, horizontal=True)
+    days = {"3T": 66, "6T": 130, "1N": 252, "3N": 756, "Tất cả": 10000}[rng]
+with sec_fin:
+    st.markdown("### Báo cáo tài chính theo quý")
+    col_a, col_b = st.columns([3, 1])
+    key_only = col_b.toggle("Chỉ chỉ tiêu chính", value=True)
+    n_periods = col_b.slider("Số quý", 4, 12, 8)
+with sec_news:
+    st.markdown("### Tin tức")
+
+try:
+    data = api_parallel({
+        "sym": (f"/symbols/{ticker}", {}),
+        "prices": (f"/symbols/{ticker}/prices", {"limit": days}),
+        "fin": (f"/symbols/{ticker}/financials", {"periods": n_periods, "key_only": key_only}),
+        "news": (f"/symbols/{ticker}/news", {"limit": 50}),
+    })
+except requests.RequestException as e:
+    st.error(f"Không gọi được API {API_URL}: {e}")
+    st.stop()
+
+sym = data["sym"] or {}
+with head:
+    st.subheader(f"{ticker} · {sym.get('company_name') or ''}")
+    st.caption(" · ".join(x for x in [sym.get("exchange"), sym.get("industry")] if x))
 
 # ----------------------------------------------------------------- 1. biểu đồ giá
-st.markdown("### Biểu đồ giá")
-rng = st.radio("Khoảng thời gian", ["3T", "6T", "1N", "3N", "Tất cả"], index=2, horizontal=True)
-days = {"3T": 66, "6T": 130, "1N": 252, "3N": 756, "Tất cả": 10000}[rng]
-prices = pd.DataFrame(api(f"/symbols/{ticker}/prices", limit=days)["prices"])
+sec_price.__enter__()
+prices = pd.DataFrame((data["prices"] or {}).get("prices", []))
 if prices.empty:
     st.info("Chưa có dữ liệu giá.")
 else:
@@ -86,13 +136,11 @@ else:
     vol = base.mark_bar(opacity=0.5).encode(y=alt.Y("volume:Q", title="KL"), color=color).properties(height=100)
     st.altair_chart((rule + bar).properties(height=340), use_container_width=True)
     st.altair_chart(vol, use_container_width=True)
+sec_price.__exit__(None, None, None)
 
 # ----------------------------------------------------------------- 2. BCTC theo quý
-st.markdown("### Báo cáo tài chính theo quý")
-col_a, col_b = st.columns([3, 1])
-key_only = col_b.toggle("Chỉ chỉ tiêu chính", value=True)
-n_periods = col_b.slider("Số quý", 4, 12, 8)
-fin = api(f"/symbols/{ticker}/financials", periods=n_periods, key_only=key_only)
+sec_fin.__enter__()
+fin = data["fin"]
 items = pd.DataFrame(fin["items"]) if fin else pd.DataFrame()
 if items.empty:
     st.info("Chưa có dữ liệu BCTC.")
@@ -129,10 +177,11 @@ else:
         st.markdown("**Chỉ số**")
         st.dataframe(r.rename(columns={"pe": "P/E", "pb": "P/B", "roe": "ROE", "eps": "EPS (đ)"}).T,
                      use_container_width=True)
+sec_fin.__exit__(None, None, None)
 
 # ----------------------------------------------------------------- 3. timeline tin tức
-st.markdown("### Tin tức")
-news = (api(f"/symbols/{ticker}/news", limit=50) or {}).get("news", [])
+sec_news.__enter__()
+news = (data["news"] or {}).get("news", [])
 if not news:
     st.info("Chưa có tin gắn với mã này.")
 for n in news:
@@ -144,3 +193,4 @@ for n in news:
                 f"<small>{n['source']}{others}</small>", unsafe_allow_html=True)
     if n.get("summary"):
         st.caption(n["summary"][:280])
+sec_news.__exit__(None, None, None)

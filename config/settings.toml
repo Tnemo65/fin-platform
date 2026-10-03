@@ -9,8 +9,13 @@ exchanges = ["HOSE", "HNX", "UPCOM"]
 process_inline = true
 # Số ngày lấy lùi khi crawl giá EOD (chồng lấn để vá ngày thiếu, upsert nên không trùng)
 price_lookback_days = 7
-# Nghỉ giữa 2 request tới cùng một nguồn (giây)
+# Giãn cách tối thiểu giữa 2 request tới cùng một nguồn (giây), tính chung cho mọi luồng
 request_delay = 0.4
+# Số luồng tải song song trong một nguồn (theo mã với vnstock, theo bài với RSS).
+# Tốc độ thực tế vẫn bị request_delay giới hạn; tăng workers chỉ có ích khi giảm request_delay.
+crawl_workers = 4
+# Số nguồn fetch song song trong một job (vd 4 feed RSS + 2 trang công bố cùng lúc)
+source_workers = 4
 # Số bài tối đa tải nội dung mỗi feed mỗi lần chạy
 max_articles_per_feed = 40
 

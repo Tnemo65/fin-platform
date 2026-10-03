@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import calendar
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -17,6 +16,7 @@ import requests
 
 from ..config import get_settings
 from ..schemas import NewsRec
+from ..utils import RateLimiter, thread_map
 from .base import Source, register_factory
 
 log = logging.getLogger(__name__)
@@ -53,19 +53,28 @@ class RssSource(Source):
         self.name = name
         self.label = label
         self.urls = urls
+        self._limiter = RateLimiter()  # dùng chung cho mọi luồng của nguồn này
 
     def fetch(self, dataset: str, skip: Callable[[str], bool] | None = None, **params: Any) -> list[dict]:
         s = get_settings()
         limit = int(s.general("max_articles_per_feed", 40))
-        delay = float(s.general("request_delay", 0.4))
-        out: list[dict] = []
-        errors = []
-        for feed_url in self.urls:
+        workers = int(s.general("crawl_workers", 4))
+        self._limiter.min_interval = float(s.general("request_delay", 0.4))
+
+        # 1. Đọc các feed (song song)
+        def read_feed(feed_url: str) -> tuple[Any, str | None]:
+            self._limiter.wait()
             try:
-                feed = feedparser.parse(http_get(feed_url).content)
+                return feedparser.parse(http_get(feed_url).content), None
             except Exception as e:  # noqa: BLE001
                 log.warning("%s: không đọc được feed %s: %s", self.name, feed_url, e)
-                errors.append({"_error": f"{type(e).__name__}: {e}", "feed_url": feed_url})
+                return None, f"{type(e).__name__}: {e}"
+
+        out: list[dict] = []
+        errors = []
+        for feed_url, (feed, err) in zip(self.urls, thread_map(read_feed, self.urls, workers)):
+            if err:
+                errors.append({"_error": err, "feed_url": feed_url})
                 continue
             for entry in feed.entries[:limit]:
                 link = entry.get("link")
@@ -82,14 +91,18 @@ class RssSource(Source):
                 }
                 if skip and skip(link):
                     rec["_skipped_content"] = True  # đã có trong DB, không tải lại bài
-                else:
-                    try:
-                        rec["html"] = http_get(link).text
-                    except Exception as e:  # noqa: BLE001
-                        rec["_content_error"] = f"{type(e).__name__}: {e}"
-                    if delay:
-                        time.sleep(delay)
                 out.append(rec)
+
+        # 2. Tải nội dung bài mới (song song, giãn cách request_delay giữa các request)
+        def load_article(rec: dict) -> None:
+            self._limiter.wait()
+            try:
+                rec["html"] = http_get(rec["link"]).text
+            except Exception as e:  # noqa: BLE001
+                rec["_content_error"] = f"{type(e).__name__}: {e}"
+
+        thread_map(load_article, [r for r in out if not r.get("_skipped_content")], workers)
+
         if not out and errors:
             # Mọi feed đều lỗi -> báo lỗi để job ghi failed
             raise RuntimeError("; ".join(e["_error"] for e in errors))
