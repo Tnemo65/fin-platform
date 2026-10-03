@@ -4,6 +4,7 @@ apscheduler>=3.10,<4
 fastapi>=0.110
 uvicorn[standard]>=0.29
 requests>=2.31
+tenacity>=8.2
 feedparser>=6.0
 trafilatura>=1.8
 lxml>=5

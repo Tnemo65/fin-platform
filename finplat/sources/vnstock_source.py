@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from ..config import get_settings
+from ..retrying import with_retry
 from ..schemas import EventRec, FinancialRec, PriceRec, RatioRec, SymbolRec
 from ..utils import RateLimiter, first_present, thread_map, to_float
 from .base import Source, register
@@ -75,18 +76,19 @@ class VnstockSource(Source):
         return self._vnstock().Vnstock().stock(symbol=ticker, source=self.provider)
 
     def _per_ticker(self, tickers: list[str], fn) -> list[dict]:
-        """Chạy fn(ticker) song song trên nhiều luồng; request tới nguồn vẫn giãn cách request_delay."""
+        """Chạy fn(ticker) song song trên nhiều luồng, mỗi mã tự thử lại khi lỗi tạm thời;
+        request tới nguồn vẫn giãn cách request_delay (limiter nằm trong _stock nên mỗi lần thử đều chờ)."""
         s = get_settings()
         self._limiter.min_interval = float(s.general("request_delay", 0.4))
 
         def one(t: str) -> list[dict]:
             try:
                 recs = []
-                for rec in fn(t):
+                for rec in with_retry(fn, t):  # lỗi mạng/rate limit: thử lại mã này
                     rec.setdefault("ticker", t)
                     recs.append(rec)
                 return recs
-            except Exception as e:  # lỗi một mã không làm hỏng cả batch
+            except Exception as e:  # lỗi một mã (sau khi đã thử lại) không làm hỏng cả batch
                 log.warning("%s: lỗi %s: %s", self.name, t, e)
                 return [{"ticker": t, "_error": f"{type(e).__name__}: {e}"}]
 
@@ -100,9 +102,9 @@ class VnstockSource(Source):
         if dataset == "symbols":
             vn = self._vnstock()
             listing = vn.Listing(source=self.provider) if self.provider == "VCI" else vn.Listing()
-            rows = _df_records(listing.symbols_by_exchange())
+            rows = _df_records(with_retry(listing.symbols_by_exchange))
             try:  # bổ sung ngành nếu provider hỗ trợ
-                ind = {r.get("symbol"): r for r in _df_records(listing.symbols_by_industries())}
+                ind = {r.get("symbol"): r for r in _df_records(with_retry(listing.symbols_by_industries))}
                 for r in rows:
                     extra = ind.get(r.get("symbol")) or {}
                     r.setdefault("industry", extra.get("icb_name3") or extra.get("icb_name2"))

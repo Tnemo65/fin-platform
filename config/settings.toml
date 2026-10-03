@@ -19,6 +19,14 @@ source_workers = 4
 # Số bài tối đa tải nội dung mỗi feed mỗi lần chạy
 max_articles_per_feed = 40
 
+# Thử lại khi crawl gặp lỗi tạm thời (mất kết nối, timeout, HTTP 429/5xx). Áp dụng cho từng
+# request/từng mã, backoff mũ có jitter: lần 2 chờ ~wait_min..2*wait_min giây, lần 3 gấp đôi...
+# Server trả Retry-After thì chờ theo đó. Lỗi dữ liệu (404, parse) không thử lại.
+[retry]
+attempts = 3
+wait_min = 1.0
+wait_max = 20.0
+
 # Thứ tự ưu tiên nguồn theo loại dữ liệu: nguồn đứng trước thắng khi hai nguồn lệch nhau.
 # Nguồn không có trong danh sách có độ ưu tiên thấp nhất.
 [priority]

@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 from lxml import html as lh
 
 from ..config import get_settings
+from ..retrying import with_retry
 from ..schemas import NewsRec
 from .base import Source, register_factory
 from .rss import http_get
@@ -35,7 +36,7 @@ class DisclosureSource(Source):
         self.base_url = cfg.get("base_url", self.url)
 
     def fetch(self, dataset: str, **params: Any) -> list[dict]:
-        resp = http_get(self.url)
+        resp = with_retry(http_get, self.url)
         return [{"page_url": self.url, "fetched_html": resp.text}]
 
     def parse(self, dataset: str, raw: list[dict], params: dict | None = None) -> list[NewsRec]:

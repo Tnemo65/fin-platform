@@ -53,6 +53,7 @@ finplat/
     demo.py               dữ liệu giả lập để thử UI
   schemas.py              Format chung mọi nguồn trả về (PriceRec, FinancialRec, NewsRec, ...)
   raw_store.py            Lưu raw (.jsonl.gz) + bảng raw_batches
+  retrying.py             Retry (tenacity) cho mọi request crawl
   processing/
     normalize.py          VND, kỳ 2026Q2, URL/tiêu đề, mã chỉ tiêu BCTC
     tagger.py             Gắn mã cho tin
@@ -78,6 +79,11 @@ tests/                    pytest (chạy được trên SQLite và PostgreSQL)
   `python -m finplat process --retry-failed` hoặc `python -m finplat reprocess --since 2026-10-01`,
   không crawl lại.
 - **Upsert.** Mọi bảng ghi bằng `INSERT ... ON CONFLICT DO UPDATE`, chạy lại không sinh trùng.
+- **Thử lại (tenacity).** Mọi request của crawler (feed, bài viết, trang công bố, từng mã vnstock)
+  đi qua `finplat/retrying.py`: lỗi tạm thời (mất kết nối, timeout, HTTP 408/425/429/5xx) thử
+  lại với backoff mũ có jitter, server trả `Retry-After` thì chờ theo đó; lỗi dữ liệu (404,
+  parse) ném ngay. Cấu hình `[retry]` (`attempts`, `wait_min`, `wait_max`). Hết lượt thì lỗi
+  được ghi vào raw/`job_runs` như trước, không làm dừng job.
 
 ## Xử lý và hợp nhất
 

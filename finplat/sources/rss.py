@@ -15,6 +15,7 @@ import feedparser
 import requests
 
 from ..config import get_settings
+from ..retrying import with_retry
 from ..schemas import NewsRec
 from ..utils import RateLimiter, thread_map
 from .base import Source, register_factory
@@ -55,6 +56,15 @@ class RssSource(Source):
         self.urls = urls
         self._limiter = RateLimiter()  # dùng chung cho mọi luồng của nguồn này
 
+    def _get(self, url: str) -> requests.Response:
+        """GET có giãn cách + retry; giãn cách nằm trong hàm được retry nên mỗi lần thử vẫn giữ khoảng cách."""
+
+        def attempt():
+            self._limiter.wait()
+            return http_get(url)
+
+        return with_retry(attempt)
+
     def fetch(self, dataset: str, skip: Callable[[str], bool] | None = None, **params: Any) -> list[dict]:
         s = get_settings()
         limit = int(s.general("max_articles_per_feed", 40))
@@ -63,9 +73,8 @@ class RssSource(Source):
 
         # 1. Đọc các feed (song song)
         def read_feed(feed_url: str) -> tuple[Any, str | None]:
-            self._limiter.wait()
             try:
-                return feedparser.parse(http_get(feed_url).content), None
+                return feedparser.parse(self._get(feed_url).content), None
             except Exception as e:  # noqa: BLE001
                 log.warning("%s: không đọc được feed %s: %s", self.name, feed_url, e)
                 return None, f"{type(e).__name__}: {e}"
@@ -93,11 +102,10 @@ class RssSource(Source):
                     rec["_skipped_content"] = True  # đã có trong DB, không tải lại bài
                 out.append(rec)
 
-        # 2. Tải nội dung bài mới (song song, giãn cách request_delay giữa các request)
+        # 2. Tải nội dung bài mới (song song, giãn cách request_delay giữa các request, lỗi tạm thời tự thử lại)
         def load_article(rec: dict) -> None:
-            self._limiter.wait()
             try:
-                rec["html"] = http_get(rec["link"]).text
+                rec["html"] = self._get(rec["link"]).text
             except Exception as e:  # noqa: BLE001
                 rec["_content_error"] = f"{type(e).__name__}: {e}"
 

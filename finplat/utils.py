@@ -54,19 +54,6 @@ def to_float(value) -> float | None:
         return None
 
 
-def retry(fn: Callable[[], T], attempts: int = 3, delay: float = 2.0, exceptions=(Exception,)) -> T:
-    last: Exception | None = None
-    for i in range(attempts):
-        try:
-            return fn()
-        except exceptions as e:  # noqa: PERF203
-            last = e
-            if i < attempts - 1:
-                time.sleep(delay * (2**i))
-    assert last is not None
-    raise last
-
-
 def first_present(d: dict, keys: Iterable[str]):
     """Lấy giá trị theo danh sách tên cột có thể có (không phân biệt hoa thường)."""
     lower = {str(k).lower(): v for k, v in d.items()}
