@@ -69,7 +69,7 @@ class RssSource(Source):
         s = get_settings()
         limit = int(s.general("max_articles_per_feed", 40))
         workers = int(s.general("crawl_workers", 4))
-        self._limiter.min_interval = float(s.general("request_delay", 0.4))
+        self._limiter.min_interval = s.request_delay(self.name)
 
         # 1. Đọc các feed (song song)
         def read_feed(feed_url: str) -> tuple[Any, str | None]:

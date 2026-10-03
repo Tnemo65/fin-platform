@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..checks import data_status
 from ..db import get_sessionmaker, init_db
-from ..models import CorporateEvent, FinancialItem, News, NewsTicker, PriceDaily, Ratio, Symbol
+from ..models import CorporateEvent, FinancialItem, News, NewsTicker, PriceDaily, PriceDailySource, Ratio, Symbol
 from ..processing.normalize import KEY_ITEMS, prev_year_period
 
 
@@ -83,18 +83,38 @@ def get_symbol(ticker: str, db: Session = Depends(get_db)):
 
 @app.get("/symbols/{ticker}/prices")
 def get_prices(ticker: str, start: date | None = None, end: date | None = None,
-               limit: int = Query(1000, le=10000), db: Session = Depends(get_db)):
-    """Giá EOD (VND), sắp xếp theo ngày tăng dần."""
+               limit: int = Query(1000, le=10000), source: str | None = None, db: Session = Depends(get_db)):
+    """Giá EOD (VND), sắp xếp theo ngày tăng dần. Mặc định là bản hợp nhất theo ưu tiên nguồn;
+    `source=` trả đúng dữ liệu của một nguồn (vnstock_vci, vndirect, cafef_prices...)."""
     _symbol_or_404(db, ticker)
-    stmt = select(PriceDaily).where(PriceDaily.ticker == ticker.upper())
+    model = PriceDailySource if source else PriceDaily
+    stmt = select(model).where(model.ticker == ticker.upper())
+    if source:
+        stmt = stmt.where(model.source == source)
     if start:
-        stmt = stmt.where(PriceDaily.date >= start)
+        stmt = stmt.where(model.date >= start)
     if end:
-        stmt = stmt.where(PriceDaily.date <= end)
-    rows = list(db.scalars(stmt.order_by(PriceDaily.date.desc()).limit(limit)))[::-1]
+        stmt = stmt.where(model.date <= end)
+    rows = list(db.scalars(stmt.order_by(model.date.desc()).limit(limit)))[::-1]
     return {"ticker": ticker.upper(), "unit": "VND", "prices": [
         {"date": r.date.isoformat(), "open": r.open, "high": r.high, "low": r.low, "close": r.close,
          "volume": r.volume, "source": r.source} for r in rows]}
+
+
+@app.get("/symbols/{ticker}/prices/compare")
+def compare_prices(ticker: str, limit: int = Query(30, le=500), db: Session = Depends(get_db)):
+    """Giá đóng cửa theo từng nguồn, cùng ngày đặt cạnh nhau, để thấy nguồn nào lệch."""
+    t = ticker.upper()
+    _symbol_or_404(db, t)
+    days = list(db.scalars(select(PriceDailySource.date).where(PriceDailySource.ticker == t).distinct()
+                           .order_by(PriceDailySource.date.desc()).limit(limit)))
+    rows = db.execute(select(PriceDailySource.date, PriceDailySource.source, PriceDailySource.close)
+                      .where(PriceDailySource.ticker == t, PriceDailySource.date.in_(days))).all()
+    by_day: dict[str, dict[str, float | None]] = {}
+    for d, src, close in rows:
+        by_day.setdefault(d.isoformat(), {})[src] = close
+    return {"ticker": t, "sources": sorted({src for _, src, _ in rows}),
+            "days": [{"date": d, "close": vals} for d, vals in sorted(by_day.items())]}
 
 
 @app.get("/symbols/{ticker}/financials")

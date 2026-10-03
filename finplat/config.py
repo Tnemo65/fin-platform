@@ -54,6 +54,15 @@ class Settings:
     def unit(self, source: str, kind: str, default: str = "VND") -> str:
         return self.raw.get("units", {}).get(source, {}).get(kind, default)
 
+    def request_delay(self, source: str) -> float:
+        """Giãn cách request của một nguồn: [rate_limits].<source> nếu có, không thì [general].request_delay."""
+        override = self.raw.get("rate_limits", {}).get(source)
+        return float(override if override is not None else self.general("request_delay", 0.4))
+
+    @property
+    def checks(self) -> dict:
+        return self.raw.get("checks", {})
+
     @property
     def feeds(self) -> dict:
         return self.raw.get("feeds", {})

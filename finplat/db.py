@@ -54,7 +54,24 @@ def session_scope(url: str | None = None) -> Iterator[Session]:
 
 
 def init_db(url: str | None = None) -> None:
-    Base.metadata.create_all(get_engine(url))
+    engine = get_engine(url)
+    Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Thêm cột mới vào bảng đã có (create_all không làm việc này). Chỉ thêm cột nullable/có default."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ddl = col.type.compile(engine.dialect)
+                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
 
 
 def _insert_for(session: Session):

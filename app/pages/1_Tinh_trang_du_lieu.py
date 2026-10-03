@@ -35,6 +35,36 @@ else:
     st.dataframe(src.rename(columns={"source": "nguồn", "dataset": "loại", "last_fetched": "lần cuối (giờ VN)",
                                      "batches": "số lần"}), use_container_width=True, hide_index=True)
 
+st.markdown("### Độ phủ từng nguồn (lần crawl gần nhất)")
+cov = pd.DataFrame(data.get("coverage", []))
+if cov.empty:
+    st.info("Chưa có lần crawl nào.")
+else:
+    cov["độ phủ"] = cov.apply(lambda r: f"{r['ok']}/{int(r['requested'])} ({r['coverage']:.0%})"
+                              if pd.notna(r["requested"]) and r["requested"] else f"{r['ok']} bản ghi", axis=1)
+    cov["tình trạng"] = ["🟢" if c >= 0.9 else ("🟠" if c >= 0.5 else "🔴") for c in cov["coverage"]]
+    cov["fetched_at"] = to_vn(cov["fetched_at"])
+    st.dataframe(cov[["source", "dataset", "độ phủ", "errors", "fetched_at", "tình trạng"]].rename(
+        columns={"source": "nguồn", "dataset": "loại", "errors": "lỗi", "fetched_at": "lúc (giờ VN)"}),
+        use_container_width=True, hide_index=True)
+    st.caption("Mọi nguồn đều được crawl đầy đủ; nguồn dưới 90% số mã là nguồn đó có vấn đề, không phải do nguồn khác thay thế.")
+
+dis = data.get("disagreements", {})
+st.markdown("### Sai lệch giữa các nguồn")
+pd_dis = pd.DataFrame(dis.get("prices", []))
+if pd_dis.empty:
+    st.success("Giá đóng cửa ngày giao dịch gần nhất khớp giữa các nguồn (hoặc mới có một nguồn).")
+else:
+    pd_dis["giá theo nguồn"] = pd_dis["values"].map(lambda v: ", ".join(f"{k}: {x:,.0f}" for k, x in v.items()))
+    st.dataframe(pd_dis[["ticker", "date", "diff_pct", "giá theo nguồn"]].rename(
+        columns={"ticker": "mã", "date": "ngày", "diff_pct": "lệch %"}), use_container_width=True, hide_index=True)
+fd = pd.DataFrame(dis.get("financials", []))
+if not fd.empty:
+    fd["giá trị theo nguồn"] = fd["values"].map(lambda v: ", ".join(f"{k}: {x:,.0f}" for k, x in v.items()))
+    st.dataframe(fd[["ticker", "period", "item_code", "diff_pct", "giá trị theo nguồn"]].rename(
+        columns={"ticker": "mã", "period": "kỳ", "item_code": "chỉ tiêu", "diff_pct": "lệch %"}),
+        use_container_width=True, hide_index=True)
+
 st.markdown("### Lần chạy gần nhất của từng job")
 runs = pd.DataFrame(data["last_runs"])
 if not runs.empty:

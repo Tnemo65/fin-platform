@@ -81,7 +81,7 @@ class VnstockSource(Source):
         """Chạy fn(ticker) song song trên nhiều luồng, mỗi mã tự thử lại khi lỗi tạm thời;
         request tới nguồn vẫn giãn cách request_delay (limiter nằm trong _stock nên mỗi lần thử đều chờ)."""
         s = get_settings()
-        self._limiter.min_interval = float(s.general("request_delay", 0.4))
+        self._limiter.min_interval = s.request_delay(self.name)
 
         def one(t: str) -> list[dict]:
             try:

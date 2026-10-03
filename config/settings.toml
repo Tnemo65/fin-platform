@@ -27,26 +27,41 @@ attempts = 3
 wait_min = 1.0
 wait_max = 20.0
 
-# Thứ tự ưu tiên nguồn theo loại dữ liệu: nguồn đứng trước thắng khi hai nguồn lệch nhau.
-# Nguồn không có trong danh sách có độ ưu tiên thấp nhất.
+# NGUYÊN TẮC NHIỀU NGUỒN: mọi nguồn trong [sources] đều được crawl đầy đủ và song song trong mỗi job,
+# giá trị của từng nguồn được giữ nguyên trong bảng *_by_source. Không có chuyện bỏ nguồn này lấy nguồn khác.
+# [priority] chỉ quyết định nguồn nào được ghi vào bảng core khi hai nguồn lệch nhau (nguồn đứng trước thắng;
+# nguồn không có trong danh sách xếp cuối). Job 19:00 báo độ phủ từng nguồn và các mã có nguồn lệch nhau.
 [priority]
 symbols = ["vnstock_vci", "vnstock_kbs", "demo"]
-prices = ["vnstock_vci", "vnstock_kbs", "demo"]
-financials = ["vnstock_vci", "vnstock_kbs", "demo"]
+prices = ["vnstock_vci", "vnstock_kbs", "vndirect", "cafef_prices", "demo"]
+financials = ["vnstock_vci", "vnstock_kbs", "vndirect", "demo"]
 ratios = ["vnstock_vci", "vnstock_kbs", "demo"]
 events = ["vnstock_vci", "vnstock_kbs", "demo"]
 news = ["hose", "hnx", "vietstock", "cafef", "vneconomy", "vnexpress", "demo"]
 
-# Nguồn đang bật cho từng job. vnstock 3.5.0 (03/2026) đã gỡ TCBS; nguồn còn lại: VCI, KBS (mặc định
-# của vnstock 4.x), MSN, FMarket. Sự kiện doanh nghiệp lấy từ VCI (IQ-Insight corporate actions).
+# Nguồn đang bật cho từng job: TẤT CẢ đều chạy. vnstock 3.5.0 (03/2026) đã gỡ TCBS; vnstock còn VCI, KBS.
+# vndirect, cafef_prices gọi API trực tiếp (không qua vnstock, không vướng hạn mức key của vnstock).
 [sources]
-symbols = ["vnstock_vci"]
+symbols = ["vnstock_vci", "vnstock_kbs"]
 events = ["vnstock_vci"]
-prices = ["vnstock_vci"]
-financials = ["vnstock_vci"]
-ratios = ["vnstock_vci"]
+prices = ["vnstock_vci", "vnstock_kbs", "vndirect", "cafef_prices"]
+financials = ["vnstock_vci", "vnstock_kbs", "vndirect"]
+ratios = ["vnstock_vci", "vnstock_kbs"]
 news = ["cafef", "vietstock", "vnexpress", "vneconomy"]
 disclosures = ["hose", "hnx"]
+
+# Giãn cách request riêng từng nguồn (giây), ghi đè [general].request_delay. vnstock không có key: 20 req/phút.
+[rate_limits]
+vnstock_vci = 3.0
+vnstock_kbs = 3.0
+vndirect = 0.5
+cafef_prices = 0.5
+
+# Ngưỡng kiểm tra chất lượng theo nguồn (job 19:00 và trang tình trạng dữ liệu)
+[checks]
+min_source_coverage = 0.9      # nguồn crawl được < 90% số mã yêu cầu -> báo
+max_close_diff_pct = 1.0       # giá đóng cửa giữa 2 nguồn lệch > 1% -> báo
+max_financial_diff_pct = 2.0   # chỉ tiêu BCTC chính giữa 2 nguồn lệch > 2% -> báo
 
 # Đơn vị gốc mà từng nguồn trả về, để quy về VND.
 # price = "auto": tự nhận diện nghìn đồng/đồng theo độ lớn (raw > 1000 là đồng), vì vnstock đổi
@@ -62,6 +77,13 @@ eps = "VND"
 price = "auto"
 financial = "VND"
 eps = "VND"
+
+[units.vndirect]
+price = "auto"
+financial = "VND"      # chưa kiểm chứng; nếu báo cáo sai lệch cho thấy lệch 1e9 lần thì đổi "bVND"
+
+[units.cafef_prices]
+price = "auto"
 
 # Feed RSS. Thêm feed mới chỉ cần thêm dòng ở đây.
 [feeds.cafef]

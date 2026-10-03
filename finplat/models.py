@@ -89,6 +89,49 @@ class Ratio(SourceMixin, Base):
     eps: Mapped[float | None] = mapped_column(Float)  # VND/cp
 
 
+# ---- Bảng theo từng nguồn: giữ nguyên giá trị MỌI nguồn đã crawl (không chỉ nguồn thắng ưu tiên),
+# để so sánh chéo, phát hiện lệch và truy vết. Bảng core ở trên là bản hợp nhất theo [priority].
+class PriceDailySource(Base):
+    __tablename__ = "price_daily_by_source"
+    source: Mapped[str] = mapped_column(String(32), primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    open: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+    low: Mapped[float | None] = mapped_column(Float)
+    close: Mapped[float | None] = mapped_column(Float)
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+    __table_args__ = (Index("ix_pds_ticker_date", "ticker", "date"),)
+
+
+class FinancialItemSource(Base):
+    __tablename__ = "financial_items_by_source"
+    source: Mapped[str] = mapped_column(String(32), primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    period: Mapped[str] = mapped_column(String(8), primary_key=True)
+    statement: Mapped[str] = mapped_column(String(4), primary_key=True)
+    item_code: Mapped[str] = mapped_column(String(128), primary_key=True)
+    item_name: Mapped[str | None] = mapped_column(String(255))
+    value: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+    __table_args__ = (Index("ix_fis_ticker_period", "ticker", "period"),)
+
+
+class RatioSource(Base):
+    __tablename__ = "ratios_by_source"
+    source: Mapped[str] = mapped_column(String(32), primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    period: Mapped[str] = mapped_column(String(8), primary_key=True)
+    pe: Mapped[float | None] = mapped_column(Float)
+    pb: Mapped[float | None] = mapped_column(Float)
+    roe: Mapped[float | None] = mapped_column(Float)
+    eps: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
 class CorporateEvent(SourceMixin, Base):
     """Cổ tức tiền/cổ phiếu, phát hành thêm..."""
 
@@ -139,6 +182,10 @@ class RawBatch(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime)
     error: Mapped[str | None] = mapped_column(Text)
     job_run_id: Mapped[int | None] = mapped_column(Integer)
+    # Độ phủ của lần crawl: số mã/feed yêu cầu, số mục có dữ liệu, số mục lỗi (để biết nguồn nào crawl thiếu)
+    requested: Mapped[int | None] = mapped_column(Integer)
+    ok_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class JobRun(Base):

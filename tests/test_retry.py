@@ -22,6 +22,7 @@ def _http_error(status: int, headers: dict | None = None) -> requests.HTTPError:
 def fast_retry():
     get_settings().raw["retry"] = {"attempts": 3, "wait_min": 0.01, "wait_max": 0.05}
     get_settings().raw["general"]["request_delay"] = 0
+    get_settings().raw["rate_limits"] = {}
 
 
 def test_is_transient_classification():

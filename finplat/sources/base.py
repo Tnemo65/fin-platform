@@ -48,7 +48,7 @@ def register_factory(factory: Callable[[], list["Source"]]) -> Callable[[], list
 
 
 def _ensure_loaded() -> None:
-    from . import demo, disclosures, rss, vnstock_source  # noqa: F401  (đăng ký khi import)
+    from . import cafef, demo, disclosures, rss, vndirect, vnstock_source  # noqa: F401  (đăng ký khi import)
 
     while _FACTORIES:
         for src in _FACTORIES.pop()():

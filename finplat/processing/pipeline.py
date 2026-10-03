@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import session_scope, upsert
-from ..models import CorporateEvent, FinancialItem, News, NewsTicker, PriceDaily, RawBatch, Ratio, Symbol
+from ..models import (CorporateEvent, FinancialItem, FinancialItemSource, News, NewsTicker, PriceDaily,
+                      PriceDailySource, RawBatch, Ratio, RatioSource, Symbol)
 from ..raw_store import RawStore
 from ..schemas import EventRec, FinancialRec, NewsRec, PriceRec, RatioRec, SymbolRec
 from ..sources import get_source
@@ -39,6 +40,12 @@ def _prio(dataset: str, source: str) -> dict:
 
 
 # ------------------------------------------------------------------ processors
+def _keep_by_source(session: Session, model, rows: list[dict], key_cols: list[str]) -> None:
+    """Giữ giá trị của MỌI nguồn trong bảng *_by_source (không lọc theo ưu tiên), để so sánh chéo giữa các nguồn."""
+    cols = {c.name for c in model.__table__.columns}
+    upsert(session, model, [{k: v for k, v in r.items() if k in cols} for r in rows], key_cols, respect_priority=False)
+
+
 def process_symbols(session: Session, recs: list[SymbolRec], source: str) -> int:
     p = _prio("symbols", source)
     rows = [
@@ -62,6 +69,7 @@ def process_prices(session: Session, recs: list[PriceRec], source: str) -> int:
             continue
         rows.append({"ticker": r.ticker.upper(), "date": parse_date(r.date), "open": o, "high": h, "low": lo,
                      "close": c, "volume": int(r.volume) if r.volume is not None else None, **p})
+    _keep_by_source(session, PriceDailySource, rows, ["source", "ticker", "date"])
     return upsert(session, PriceDaily, rows, ["ticker", "date"])
 
 
@@ -74,6 +82,7 @@ def process_financials(session: Session, recs: list[FinancialRec], source: str) 
         rows.append({"ticker": r.ticker.upper(), "period": period, "year": year, "quarter": quarter,
                      "statement": r.statement, "item_code": item_code(r.item_name), "item_name": r.item_name,
                      "value": to_vnd(r.value, unit), **p})
+    _keep_by_source(session, FinancialItemSource, rows, ["source", "ticker", "period", "statement", "item_code"])
     return upsert(session, FinancialItem, rows, ["ticker", "period", "statement", "item_code"])
 
 
@@ -87,6 +96,7 @@ def process_ratios(session: Session, recs: list[RatioRec], source: str) -> int:
             roe = roe / 100
         rows.append({"ticker": r.ticker.upper(), "period": period, "year": year, "quarter": quarter,
                      "pe": r.pe, "pb": r.pb, "roe": roe, "eps": to_vnd(r.eps, r.eps_unit), **p})
+    _keep_by_source(session, RatioSource, rows, ["source", "ticker", "period"])
     return upsert(session, Ratio, rows, ["ticker", "period"])
 
 

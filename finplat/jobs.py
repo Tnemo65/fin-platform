@@ -108,14 +108,20 @@ def crawl_many(ctx: RunCtx, tasks: list[CrawlTask]) -> None:
 
 def _store_and_process(ctx: RunCtx, source_name: str, dataset: str, params: dict, records: list[dict]) -> None:
     saved_params = {k: v for k, v in params.items() if not callable(v)}
+    requested = None
     if "tickers" in saved_params:
-        saved_params["tickers"] = len(saved_params["tickers"])  # không lưu danh sách dài
+        requested = len(saved_params["tickers"])
+        saved_params["tickers"] = requested  # không lưu danh sách dài
+    bad = [r for r in records if "_error" in r]
+    good = [r for r in records if "_error" not in r]
+    # Độ phủ: theo mã nếu crawl theo mã (một mã có thể nhiều dòng), còn lại theo bản ghi
+    ok = len({r.get("ticker") for r in good}) if requested is not None else len(good)
     with session_scope() as s:
         batch = RawStore().save(s, source_name, dataset, records, saved_params, job_run_id=ctx.id)
+        batch.requested, batch.ok_count, batch.error_count = requested, ok, len(bad)
         batch_id = batch.id
-    bad = [r for r in records if "_error" in r]
-    ok = len(records) - len(bad)
-    ctx.notes.append(f"{source_name}/{dataset}: {ok} bản ghi raw" + (f", {len(bad)} lỗi" if bad else ""))
+    cov = f"{ok}/{requested} mã" if requested is not None else f"{len(good)} bản ghi raw"
+    ctx.notes.append(f"{source_name}/{dataset}: {cov}" + (f", {len(bad)} lỗi" if bad else ""))
     if bad:
         sample = "; ".join(f"{r.get('ticker') or r.get('feed_url')}: {r['_error']}" for r in bad[:5])
         ctx.errors.append(f"{source_name}/{dataset}: {len(bad)} mục lỗi ({sample})")
@@ -124,7 +130,7 @@ def _store_and_process(ctx: RunCtx, source_name: str, dataset: str, params: dict
         ctx.records += res["records"]
         ctx.errors.extend(res["errors"])
     else:
-        ctx.records += ok
+        ctx.records += len(good)
 
 
 def active_tickers(exchanges: list[str] | None = None) -> list[str]:

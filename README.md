@@ -49,6 +49,9 @@ config/settings.toml      Cấu hình nghiệp vụ: ưu tiên nguồn, feed RSS
 finplat/
   sources/                Mỗi nguồn một module, cùng interface (base.py)
     vnstock_source.py     vnstock_vci, vnstock_kbs: mã, giá, BCTC, chỉ số, sự kiện
+    vndirect.py           vndirect: giá, BCTC quý (finfo-api, trực tiếp)
+    cafef.py              cafef_prices: giá (PriceHistory.ashx, trực tiếp)
+    httpbase.py           Dùng chung cho nguồn HTTP theo mã: giãn cách, retry, song song
     rss.py                cafef, vietstock, vnexpress, vneconomy (sinh từ [feeds.*])
     disclosures.py        hose, hnx (sinh từ [disclosures.*])
     demo.py               dữ liệu giả lập để thử UI
@@ -86,6 +89,26 @@ tests/                    pytest (chạy được trên SQLite và PostgreSQL)
   parse) ném ngay. Cấu hình `[retry]` (`attempts`, `wait_min`, `wait_max`). Hết lượt thì lỗi
   được ghi vào raw/`job_runs` như trước, không làm dừng job.
 
+## Nhiều nguồn cùng lúc, không bỏ nguồn nào
+
+- **Mọi nguồn trong `[sources]` đều được crawl đầy đủ trong mỗi job**, song song với nhau. Một nguồn lỗi
+  hay thiếu mã thì job báo `partial`, các nguồn khác vẫn chạy trọn; không có chuyện bỏ nguồn này để lấy
+  nguồn khác. Hiện bật: giá từ `vnstock_vci`, `vnstock_kbs`, `vndirect`, `cafef_prices`; BCTC từ
+  `vnstock_vci`, `vnstock_kbs`, `vndirect`; chỉ số từ `vnstock_vci`, `vnstock_kbs`.
+- **Giữ nguyên giá trị từng nguồn** trong `price_daily_by_source`, `financial_items_by_source`,
+  `ratios_by_source`. Bảng core (`price_daily`, ...) là bản hợp nhất: khi hai nguồn lệch nhau, nguồn đứng
+  trước trong `[priority]` thắng. API: `GET /symbols/{ticker}/prices?source=vndirect` lấy đúng một nguồn,
+  `GET /symbols/{ticker}/prices/compare` đặt giá đóng cửa các nguồn cạnh nhau.
+- **Độ phủ từng nguồn**: mỗi lần crawl ghi `requested / ok_count / error_count` vào `raw_batches`
+  (theo mã nếu crawl theo mã). Job 19:00 báo nguồn nào crawl được dưới `min_source_coverage` (90%) số mã.
+- **Sai lệch giữa nguồn**: job 19:00 và trang tình trạng liệt kê mã có giá đóng cửa lệch quá
+  `max_close_diff_pct` (1%) và chỉ tiêu BCTC chính lệch quá `max_financial_diff_pct` (2%) giữa các nguồn.
+  Đây cũng là cách phát hiện lệch đơn vị (1e9 lần) của một nguồn mới mà không cần đoán.
+- **Giãn cách request riêng từng nguồn** trong `[rate_limits]` (vnstock không key: 3 giây ≈ 20 req/phút;
+  VNDirect/CafeF 0,5 giây). Nguồn chậm không kéo nguồn nhanh vì mỗi nguồn chạy luồng riêng.
+- `vndirect.py`, `cafef.py` gọi API trực tiếp theo endpoint đọc từ mã nguồn vnquant; **chưa gọi thử được**
+  từ môi trường build, parse dò nhiều tên trường và lưu raw nguyên bản để sửa rồi chạy lại từ raw.
+
 ## Xử lý và hợp nhất
 
 - Khoá chung: `ticker + date` (giá) hoặc `ticker + period` (BCTC, chỉ số), kỳ dạng `2026Q2`
@@ -103,7 +126,8 @@ tests/                    pytest (chạy được trên SQLite và PostgreSQL)
 
 `symbols`, `price_daily`, `financial_items` (dạng dài: mã, kỳ, báo cáo IS/BS/CF, chỉ tiêu),
 `ratios` (P/E, P/B, ROE, EPS), `corporate_events` (cổ tức, phát hành thêm), `news`, `news_tickers`,
-`raw_batches`, `job_runs`.
+`price_daily_by_source`, `financial_items_by_source`, `ratios_by_source` (giá trị từng nguồn),
+`raw_batches` (kèm độ phủ), `job_runs`.
 
 ## Lịch chạy (giờ VN)
 
@@ -114,7 +138,7 @@ tests/                    pytest (chạy được trên SQLite và PostgreSQL)
 | 15:30 T2-T6 | `prices_eod` | Bỏ qua ngày nghỉ lễ (`[calendar]`), lấy lùi 7 ngày để vá ngày thiếu |
 | 18:00 T2-T6 | `financials` | Mùa BCTC (`[financial_season]`) chạy toàn bộ mã, ngoài mùa xoay vòng |
 | 18:30 | `processing` | Xử lý batch raw còn tồn/lỗi + gắn mã |
-| 19:00 | `checks` | Job lỗi/không chạy, độ phủ giá EOD, nguồn cũ, batch lỗi; ghi `data/reports/<ngày>.md`, gửi webhook/Telegram nếu có lỗi |
+| 19:00 | `checks` | Job lỗi/không chạy, độ phủ giá EOD, độ phủ từng nguồn, sai lệch giữa nguồn, nguồn cũ, batch lỗi; ghi `data/reports/<ngày>.md`, gửi webhook/Telegram nếu có lỗi |
 
 Mỗi job ghi một dòng `job_runs` (`success`, `partial`, `failed`, `skipped`). Mặc định crawl xong
 xử lý ngay (`process_inline = true`) để tin hiện lên trong ngày; job 18:30 vẫn gom lại mọi thứ
@@ -138,7 +162,8 @@ Chạy bằng cron thay vì APScheduler: gọi `python -m finplat run <job>` đ�
 ## API
 
 - `GET /symbols?q=` tìm mã
-- `GET /symbols/{ticker}/prices?start=&end=&limit=` giá EOD (VND)
+- `GET /symbols/{ticker}/prices?start=&end=&limit=&source=` giá EOD (VND), `source=` để lấy một nguồn
+- `GET /symbols/{ticker}/prices/compare` giá đóng cửa theo từng nguồn cạnh nhau
 - `GET /symbols/{ticker}/financials?periods=8&statement=IS&key_only=true` BCTC theo quý kèm
   `yoy_pct` so với cùng kỳ, và chỉ số
 - `GET /symbols/{ticker}/news` timeline tin

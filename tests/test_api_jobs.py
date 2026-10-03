@@ -39,13 +39,7 @@ def test_api_after_seed():
         assert st["last_runs"][0]["status"] == "success"
 
 
-def test_job_runs_logged_and_failures_reported(monkeypatch):
-    def broken(*a, **k):
-        raise ConnectionError("không kết nối được")
-
-    from finplat.sources.vnstock_source import VnstockSource
-
-    monkeypatch.setattr(VnstockSource, "fetch", broken)
+def test_job_runs_logged_and_failures_reported(offline_sources):
     jobs.job_symbols_events(tickers=["VNM"])
     with session_scope() as s:
         run = s.scalars(select(JobRun).where(JobRun.job_name == "symbols_events")).one()
@@ -71,14 +65,9 @@ def test_scheduler_builds_all_jobs():
     assert {j.id for j in sched.get_jobs()} == set(jobs.JOBS)
 
 
-def test_cli_run_exits_nonzero_when_job_failed(monkeypatch):
+def test_cli_run_exits_nonzero_when_job_failed(offline_sources):
     from finplat.__main__ import main
-    from finplat.sources.vnstock_source import VnstockSource
 
-    def broken(*a, **k):
-        raise ConnectionError("không kết nối được")
-
-    monkeypatch.setattr(VnstockSource, "fetch", broken)
     assert main(["run", "prices_eod", "--force", "--tickers", "VNM"]) == 1
     assert main(["run", "checks"]) == 0
 

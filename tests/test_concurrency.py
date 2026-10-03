@@ -113,6 +113,7 @@ def test_rss_articles_downloaded_in_parallel(monkeypatch):
     from finplat.config import get_settings
 
     get_settings().raw["general"]["request_delay"] = 0  # đo riêng phần song song, không tính giãn cách
+    get_settings().raw["rate_limits"] = {}
     src = rss.RssSource("cafef", "CafeF", ["https://cafef.vn/a.rss"])
     t0 = time.monotonic()
     raw = src.fetch("news")
