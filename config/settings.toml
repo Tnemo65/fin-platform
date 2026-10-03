@@ -35,14 +35,16 @@ news = ["cafef", "vietstock", "vnexpress", "vneconomy"]
 disclosures = ["hose", "hnx"]
 
 # Đơn vị gốc mà từng nguồn trả về, để quy về VND.
-# Giá ở VCI/TCBS tính theo nghìn đồng. Kiểm tra lại khi đổi phiên bản vnstock.
+# price = "auto": tự nhận diện nghìn đồng/đồng theo độ lớn (raw > 1000 là đồng), vì vnstock đổi
+# cách trả giữa provider/phiên bản. Đặt cứng "kVND"/"VND" nếu muốn.
+# financial: VCI trả đồng, TCBS trả tỷ đồng. Kiểm tra lại raw sau lần chạy đầu với mạng thật.
 [units.vnstock_vci]
-price = "kVND"
+price = "auto"
 financial = "VND"
 eps = "VND"
 
 [units.vnstock_tcbs]
-price = "kVND"
+price = "auto"
 financial = "bVND"
 eps = "VND"
 

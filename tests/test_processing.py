@@ -217,6 +217,14 @@ def test_vnstock_parse_shapes():
                                     "low": 59.5, "close": 60.5, "volume": 1_200_000},
                                    {"ticker": "XXX", "_error": "ConnectionError"}])
     assert len(prices) == 1 and prices[0].unit == "kVND" and prices[0].date == "2026-10-02"
+    # provider trả đồng (60500) thay vì nghìn đồng -> tự nhận diện, không nhân 1000 lần nữa
+    (p_vnd,) = src.parse("prices", [{"ticker": "VNM", "time": "2026-10-02", "open": 60100, "high": 61000,
+                                      "low": 59500, "close": 60500, "volume": 1}])
+    assert p_vnd.unit == "VND"
+    with session_scope() as s:
+        pipeline.process_prices(s, prices + [p_vnd], "vnstock_vci")
+    with session_scope() as s:
+        assert {round(r.close) for r in s.scalars(select(PriceDaily))} == {60500}
 
     # BCTC dạng rộng (lang=vi)
     fin = src.parse("financials", [{"ticker": "VNM", "CP": "VNM", "Năm": 2026, "Kỳ": 2, "_statement": "IS",

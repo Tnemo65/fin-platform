@@ -10,6 +10,6 @@ lxml>=5
 pandas>=2.0
 streamlit>=1.35
 altair>=5
-vnstock>=3.2              # cài riêng nếu PyPI báo lỗi, xem README
 pytest>=8
 httpx>=0.27
+# vnstock (số liệu tài chính) cài riêng: pip install -r requirements-vnstock.txt  (xem README)

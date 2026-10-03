@@ -170,7 +170,7 @@ class VnstockSource(Source):
             return out
 
         if dataset == "prices":
-            unit = s.unit(self.name, "price", "kVND")
+            unit = s.unit(self.name, "price", "auto")
             return [
                 PriceRec(
                     ticker=r["ticker"],
@@ -180,7 +180,7 @@ class VnstockSource(Source):
                     low=to_float(r.get("low")),
                     close=to_float(r.get("close")),
                     volume=to_float(r.get("volume")),
-                    unit=unit,
+                    unit=price_unit(to_float(r.get("close")), unit),
                 )
                 for r in raw
                 if first_present(r, ["time", "date", "tradingdate"])
@@ -243,6 +243,16 @@ class VnstockSource(Source):
             return [e for r in raw if (e := _parse_event(r))]
 
         raise ValueError(f"{self.name} không hỗ trợ dataset {dataset}")
+
+
+def price_unit(close: float | None, configured: str) -> str:
+    """Đơn vị giá của một dòng. "auto": vnstock trả nghìn đồng (vd 60.5) hay đồng (60500) tuỳ provider/phiên bản;
+    giá cổ phiếu VN nằm trong khoảng ~1.000-1.000.000 đ nên raw > 1000 chắc chắn là đồng, ngược lại là nghìn đồng."""
+    if configured != "auto":
+        return configured
+    if close is None:
+        return "kVND"
+    return "VND" if close > 1000 else "kVND"
 
 
 def _norm_exchange(value) -> str | None:

@@ -9,6 +9,7 @@ chuẩn hoá về một khoá chung (mã + ngày/kỳ), phục vụ qua FastAPI 
 
 ```bash
 pip install -r requirements.txt
+pip install -r requirements-vnstock.txt   # số liệu tài chính; xem ghi chú vnstock bên dưới
 python -m finplat init-db
 
 # Có mạng tới nguồn thật:
@@ -28,9 +29,17 @@ python -m finplat scheduler                # chạy lịch hằng ngày
 Mặc định dùng SQLite (`data/finplat.db`). Dùng PostgreSQL: `docker compose up -d` rồi đặt
 `DATABASE_URL=postgresql+psycopg://finplat:finplat@localhost:5432/finplat` trong `.env` (xem `.env.example`).
 
-**vnstock**: tại thời điểm viết (03/10/2026) gói `vnstock` trên PyPI đang ở trạng thái *quarantined*
-nên `pip install vnstock` báo không tìm thấy. Cài theo hướng dẫn của tác giả (repo `thinh-vu/vnstock`)
-cho tới khi PyPI mở lại. Phần còn lại của hệ thống chạy được khi chưa có vnstock.
+**vnstock**: để riêng trong `requirements-vnstock.txt` vì tại thời điểm viết (03/10/2026) PyPI
+không có `vnstock` lẫn các gói nó phụ thuộc (`vnai`, `vnstock_ezchart`), nên nếu gộp chung thì
+`pip install -r requirements.txt` hỏng cả. Khi cài được thì chạy lệnh trên; nếu không, cài từ
+nguồn theo hướng dẫn của tác giả (repo `thinh-vu/vnstock`). Chưa có vnstock thì các job
+`symbols_events`, `prices_eod`, `financials` ghi `failed` vào `job_runs`; tin tức, API, giao diện
+vẫn chạy.
+
+**Mạng ra ngoài** (máy chạy crawler cần tới được): `cafef.vn`, `vietstock.vn`, `vnexpress.net`,
+`vneconomy.vn`, `www.hsx.vn`, `www.hnx.vn`, và các API vnstock dùng: `api.vietcap.com.vn` (VCI),
+`apipubaws.tcbs.com.vn` (TCBS). Lệnh `python -m finplat run <job>` trả exit code 1 khi job
+`failed`, nên cron/CI bắt được.
 
 ## Cấu trúc
 
@@ -121,7 +130,8 @@ Môi trường dựng ban đầu không truy cập được các trang Việt Na
 những phần sau mới được kiểm thử bằng dữ liệu mẫu:
 
 1. Tên cột vnstock (`parse` dò theo nhiều tên, nhưng nên chạy thử 1-2 mã và xem raw).
-2. Đơn vị BCTC của từng provider trong `[units.*]`.
+2. Đơn vị BCTC của từng provider trong `[units.*]`. Riêng giá đã tự nhận diện nghìn đồng/đồng
+   (`price = "auto"`), nên không cần chỉnh.
 3. URL feed Vietstock/VnEconomy/CafeF trong `[feeds.*]`.
 4. URL và XPath trang công bố HOSE/HNX trong `[disclosures.*]` (hai sàn hay đổi giao diện;
    trang tải bằng JavaScript thì cần đổi sang gọi API JSON của sàn).

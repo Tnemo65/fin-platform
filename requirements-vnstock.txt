@@ -1,0 +1,7 @@
+# Nguồn số liệu tài chính. Để riêng vì gói trên PyPI lúc có lúc không (03/10/2026: pip báo
+# "No matching distribution" cho vnstock, vnai, vnstock_ezchart). Thử lần lượt:
+#   pip install -r requirements-vnstock.txt
+#   pip install "git+https://github.com/thinh-vu/vnstock.git"   # cần vnai, vnstock_ezchart cài được
+# Hệ thống chạy bình thường khi chưa có vnstock: job prices_eod/financials/symbols_events ghi
+# trạng thái failed vào job_runs, các phần khác (tin tức, API, giao diện) không ảnh hưởng.
+vnstock>=3.2

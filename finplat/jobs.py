@@ -68,6 +68,11 @@ def job_run(name: str) -> Iterator[RunCtx]:
         raise RuntimeError(f"Job {name} lỗi")
 
 
+def last_run_status(job_name: str) -> str | None:
+    with session_scope() as s:
+        return s.scalar(select(JobRun.status).where(JobRun.job_name == job_name).order_by(JobRun.id.desc()).limit(1))
+
+
 def crawl(ctx: RunCtx, source_name: str, dataset: str, **params) -> None:
     """Fetch một nguồn -> lưu raw -> (tuỳ chọn) xử lý ngay. Lỗi nguồn ghi vào ctx, không làm dừng job."""
     source = get_source(source_name)

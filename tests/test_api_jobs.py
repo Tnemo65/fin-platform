@@ -69,3 +69,15 @@ def test_scheduler_builds_all_jobs():
 
     sched = build_scheduler()
     assert {j.id for j in sched.get_jobs()} == set(jobs.JOBS)
+
+
+def test_cli_run_exits_nonzero_when_job_failed(monkeypatch):
+    from finplat.__main__ import main
+    from finplat.sources.vnstock_source import VnstockSource
+
+    def broken(*a, **k):
+        raise ConnectionError("không kết nối được")
+
+    monkeypatch.setattr(VnstockSource, "fetch", broken)
+    assert main(["run", "prices_eod", "--force", "--tickers", "VNM"]) == 1
+    assert main(["run", "checks"]) == 0

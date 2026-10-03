@@ -70,6 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as e:
             print(e, file=sys.stderr)
             return 1
+        # Job ghi failed vào job_runs (nguồn lỗi, không có exception) -> exit 1 để cron/CI biết
+        status = jobs.last_run_status(args.job)
+        if status == "failed":
+            print(f"Job {args.job} failed, xem bảng job_runs hoặc `python -m finplat status`", file=sys.stderr)
+            return 1
     elif args.cmd == "process":
         from .processing.pipeline import process_pending, tag_news
 
